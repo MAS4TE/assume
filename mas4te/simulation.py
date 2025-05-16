@@ -34,15 +34,16 @@ def init(world: World, n=1):
     marketdesign = [
         # flexibility market which clears
         MarketConfig(
-            market_id="EOM",
+            market_id="BatteryMarket",
             opening_hours=rr.rrule(
                 rr.HOURLY, interval=24, dtstart=start, until=end, cache=True
             ),
             opening_duration=timedelta(hours=1),
             market_mechanism="battery_clearing",
-
+            product_type="battery",
             market_products=[MarketProduct(timedelta(hours=1), 24, timedelta(hours=1))],
-            additional_fields=["c_rate"],
+            additional_fields=["c_rate", "and_link", "xor_link"],
+            param_dict={"allowed_c_rates": [0.5, 1, 1.5]}
         )
     ]
 

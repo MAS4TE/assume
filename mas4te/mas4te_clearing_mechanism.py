@@ -45,26 +45,15 @@ class BatteryClearing(MarketRole):
     def __init__(self, marketconfig: MarketConfig):
         super().__init__(marketconfig)
 
-    def build_market(self):
-        self.asked_products = self.gather_asked_products()
-        self.bid_products = self.gather_bid_products()
-        self.askers = self.gather_askers()
-        self.bidders = self.gather_bidders()
-        self.storage_types = self.gather_storage_types()
+    def validate_orderbook(
+        self, orderbook: Orderbook, agent_addr
+    ) -> None:
+        c_rates = self.marketconfig.param_dict["allowed_c_rates"]
+        for order in orderbook:
+            if order["c_rate"] not in c_rates:
+                raise ValueError(f"{order['c_rate']} is not in {c_rates}")
 
-        self.build_pyomo_model()
-
-    def build_pyomo_model(self):
-        """Builds the pyomo model for the market."""
-
-        self.model = pyo.ConcreteModel()
-
-        self.add_bids()
-        self.add_asks()
-
-        self.set_model_objective()
-
-        self.set_model_restrictions()
+        super().validate_orderbook(orderbook, agent_addr)
 
     def set_model_restrictions(self) -> None:
         """Sets the model restrictions."""
@@ -152,22 +141,6 @@ class BatteryClearing(MarketRole):
             list[Ask]: List of askers
         """
         return list(set([ask.participant_id for ask in self.asks]))
-
-    def gather_asked_products(self) -> list[Product]:
-        """Gather all asked products in the market.
-
-        Returns:
-            list[MarketProduct]: List of asked products
-        """
-        return list(set([ask.product.id for ask in self.asks]))
-
-    def gather_bid_products(self) -> list[Product]:
-        """Gather all bid products in the market.
-
-        Returns:
-            list[MarketProduct]: List of bid products
-        """
-        return list(set([bid.product.id for bid in self.bids]))
 
     def gather_storage_types(self) -> list[StorageType]:
         """Gather all storage types in the market.
@@ -258,6 +231,7 @@ class BatteryClearing(MarketRole):
 
         return accepted_bids
 
+
     def clear(
         self, orderbook: Orderbook, market_products
     ) -> tuple[Orderbook, Orderbook, list[dict]]:
@@ -272,20 +246,54 @@ class BatteryClearing(MarketRole):
         Returns:
             tuple: accepted orderbook, rejected orderbook and clearing meta data
         """
-        market_getter = itemgetter("start_time", "end_time", "only_hours")
+        obook = [
+            {
+                "start":
+                "end"
+                "c_rate": 1
+                "volume": 100
+                "price"
+                "xor_link": None
+                "and_link": 1235
+            },
+            {
+                "start":
+                "end"
+                "c_rate": 2
+                "volume": 100
+                "price"
+                "xor_link": None
+                "and_link": 1235
+            }
+        ]
+        market_getter = itemgetter("start_time", "end_time", "c_rate")
         accepted_orders: Orderbook = []
         rejected_orders: Orderbook = []
         clear_price = 0
         meta = []
         orderbook.sort(key=market_getter)
+        # for each start and end of market products, we have all combinations of allowed c_rates
+        from itertools import product
+
+        
+        # create cartesian product, unwrap into list and append to it    
+        products: list[dict] = [[*x, y] for x, y in product(self.marketconfig.param_dict["allowed_c_rates"], market_products)]
+
+        supply_orders = [x for x in orderbook if x["volume"] > 0]
+        demand_orders = [x for x in orderbook if x["volume"] < 0]
+
+        import uuid
+        product_ids = {uuid.uuid4(): product in products}
         for product, product_orders in groupby(orderbook, market_getter):
             accepted_demand_orders: Orderbook = []
             accepted_supply_orders: Orderbook = []
             product_orders = list(product_orders)
-            if product not in market_products:
+            if product["c_rate"] not in self.marketconfig.param_dict["allowed_c_rates"]:
                 rejected_orders.extend(product_orders)
                 # logger.debug(f'found unwanted bids for {product} should be {market_products}')
                 continue
+
+            # hier bin ich mir sicher, dass alle orders in product_orders die selbe c_rate haben
 
             supply_orders = [x for x in product_orders if x["volume"] > 0]
             demand_orders = [x for x in product_orders if x["volume"] < 0]
@@ -299,43 +307,70 @@ class BatteryClearing(MarketRole):
                 key=lambda x: (x["price"], random.random()), reverse=True
             )
 
-            # TODO chriko97 run model here:
-            solver = pyo.SolverFactory(solver)
-            results = solver.solve(self.model, tee=False)
-            # TODO get output from results and set this in each incoming bid
+        self.asked_products = products
+        self.bid_products = products
+        self.askers = self.gather_askers()
+        self.bidders = self.gather_bidders()
+        
+        self.storage_types = self.gather_storage_types()
 
-            # if demand is fulfilled, we do have some additional supply orders
-            # these will be rejected
-            for order in product_orders:
-                # if the order was not accepted partially, it is rejected
-                if not order.get("accepted_volume") and order not in rejected_orders:
-                    rejected_orders.append(order)
+        self.model = pyo.ConcreteModel()
 
-            # set clearing price - merit order - uniform pricing
-            if accepted_supply_orders:
-                clear_price = float(
-                    max(map(itemgetter("price"), accepted_supply_orders))
-                )
-            else:
-                clear_price = 0
+        
+        # create indexed var
+        self.model.bid_volume = pyo.Var(
+            [order["bid_id"] for order in demand_orders],
+            products,
+            domain=pyo.NonNegativeReals,
+        )
 
-            accepted_product_orders = accepted_demand_orders + accepted_supply_orders
-            for order in accepted_product_orders:
-                order["accepted_price"] = clear_price
-            accepted_orders.extend(accepted_product_orders)
+        # set upper bound
+        for order in demand_orders:
+            self.model.bid_volume[order["bid_id"]].setub(order["volume"])
 
-            # set accepted volume to 0 and price to clear price for rejected orders
-            for order in rejected_orders:
-                order["accepted_volume"] = 0
-                order["accepted_price"] = clear_price
+        self.add_asks()
 
-            meta.append(
-                calculate_meta(
-                    accepted_supply_orders,
-                    accepted_demand_orders,
-                    product,
-                )
+        self.set_model_objective()
+
+        self.set_model_restrictions()
+
+        # TODO chriko97 run model here:
+        solver = pyo.SolverFactory(solver)
+        results = solver.solve(self.model, tee=False)
+        # TODO get output from results and set this in each incoming bid
+
+        # if demand is fulfilled, we do have some additional supply orders
+        # these will be rejected
+        for order in product_orders:
+            # if the order was not accepted partially, it is rejected
+            if not order.get("accepted_volume") and order not in rejected_orders:
+                rejected_orders.append(order)
+
+        # set clearing price - merit order - uniform pricing
+        if accepted_supply_orders:
+            clear_price = float(
+                max(map(itemgetter("price"), accepted_supply_orders))
             )
+        else:
+            clear_price = 0
+
+        accepted_product_orders = accepted_demand_orders + accepted_supply_orders
+        for order in accepted_product_orders:
+            order["accepted_price"] = clear_price
+        accepted_orders.extend(accepted_product_orders)
+
+        # set accepted volume to 0 and price to clear price for rejected orders
+        for order in rejected_orders:
+            order["accepted_volume"] = 0
+            order["accepted_price"] = clear_price
+
+        meta.append(
+            calculate_meta(
+                accepted_supply_orders,
+                accepted_demand_orders,
+                product,
+            )
+        )
 
         # write network flows here if applicable
         flows = []
