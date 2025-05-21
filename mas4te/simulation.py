@@ -9,7 +9,7 @@ from assume.common.forecasts import NaiveForecast
 from assume.common.market_objects import MarketConfig, MarketProduct
 
 from mas4te_bidding_strategy import LLMStrategy
-from mas4te_clearing_mechanism import BatteryClearing
+#from mas4te_clearing_mechanism import BatteryClearing
 
 log = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ def init(world: World, n=1):
     simulation_id = "mas4te_simulation"
 
     world.bidding_strategies["llm_strategy"] = LLMStrategy
-    world.clearing_mechanisms["battery_clearing"] = BatteryClearing
+    #world.clearing_mechanisms["battery_clearing"] = BatteryClearing
 
     world.setup(
         start=start,
@@ -39,7 +39,7 @@ def init(world: World, n=1):
                 rr.HOURLY, interval=24, dtstart=start, until=end, cache=True
             ),
             opening_duration=timedelta(hours=1),
-            market_mechanism="battery_clearing",
+            market_mechanism="pay_as_clear",
             product_type="battery",
             market_products=[MarketProduct(timedelta(hours=1), 24, timedelta(hours=1))],
             additional_fields=["c_rate", "and_link", "xor_link"],
@@ -61,27 +61,45 @@ def init(world: World, n=1):
         {
             "min_power": 0,
             "max_power": 1000,
-            "bidding_strategies": {"EOM": "llm_strategy"},
+            "bidding_strategies": {"BatteryMarket": "llm_strategy", "EOM": "llm_strategy"},
             "technology": "demand",
         },
         NaiveForecast(index, demand=1000),
     )
 
-    nuclear_forecast = NaiveForecast(index, availability=1, fuel_price=3, co2_price=0.1)
+    gas_forecast = NaiveForecast(index, availability=1, fuel_price=3, co2_price=0.1)
     for i in range(n):
         world.add_unit_operator(f"my_operator{i}")
         world.add_unit(
-            f"nuclear{i}",
+            f"gas{i}",
             "power_plant",
             f"my_operator{i}",
             {
                 "min_power": 200 / n,
                 "max_power": 1000 / n,
-                "bidding_strategies": {"EOM": "naive_eom"},
-                "technology": "nuclear",
+                "bidding_strategies": {"BatteryMarket": "naive_eom", "EOM": "naive_eom"},
+                "technology": "natural gas",
             },
-            nuclear_forecast,
+            gas_forecast,
         )
+    
+    world.add_unit_operator("storage_operator")
+    world.add_unit(
+        "storage1",
+        "storage",
+        "storage_operator",
+        {
+            "max_power_charge": 1e3,
+            "max_power_discharge": 1e3,
+            "max_soc": 1e3, # kWh
+            "min_soc": 0,
+            "efficiency_charge": 0.8,
+            "efficiency_discharge": 0.85,
+            "bidding_strategies": {"BatteryMarket": "flexable_eom_storage", "EOM": "flexable_eom_storage"},
+            "technology": "battery_storage",
+        },
+        NaiveForecast(index, availability=1, fuel_price=0.2, co2_price=0),
+    )
 
 
 if __name__ == "__main__":

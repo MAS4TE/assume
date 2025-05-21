@@ -142,11 +142,11 @@ class BatteryClearing(MarketRole):
         """
         return list(set([ask.participant_id for ask in self.asks]))
 
-    def gather_storage_types(self) -> list[StorageType]:
+    def gather_storage_types(self) -> list:
         """Gather all storage types in the market.
 
         Returns:
-            list[StorageType]: List of storage types
+            list: List of storage types
         """
 
         all_storage_types = []
@@ -246,26 +246,6 @@ class BatteryClearing(MarketRole):
         Returns:
             tuple: accepted orderbook, rejected orderbook and clearing meta data
         """
-        obook = [
-            {
-                "start":
-                "end"
-                "c_rate": 1
-                "volume": 100
-                "price"
-                "xor_link": None
-                "and_link": 1235
-            },
-            {
-                "start":
-                "end"
-                "c_rate": 2
-                "volume": 100
-                "price"
-                "xor_link": None
-                "and_link": 1235
-            }
-        ]
         market_getter = itemgetter("start_time", "end_time", "c_rate")
         accepted_orders: Orderbook = []
         rejected_orders: Orderbook = []
