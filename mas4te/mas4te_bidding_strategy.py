@@ -10,7 +10,7 @@ class LLMStrategy(BaseStrategy):
     Methods
     -------
     """
-    def __init__(self, api_url="http://localhost:1234/v1/completions"):
+    def __init__(self, api_url="http://localhost:1234/v1/completions", *args, **kwargs ):
         super().__init__()
         self.api_url = api_url
         self.headers = {"Content-Type": "application/json"}
@@ -51,14 +51,16 @@ class LLMStrategy(BaseStrategy):
             start
         )  # power output of the unit before the start time of the first product
         op_time = unit.get_operation_time(start)
-        min_power, max_power = unit.calculate_min_max_power(
+        min_power_values, max_power_values = unit.calculate_min_max_power(
             start, end_all
         )  # minimum and maximum power output of the unit between the start time of the first product and the end time of the last product
 
         bids = []
 
         # TODO create only a single llm query
-        for product in product_tuples:
+        for product, min_power, max_power in zip(
+            product_tuples, min_power_values, max_power_values
+        ):
             # for each product, calculate the marginal cost of the unit at the start time of the product
             # and the volume of the product. Dispatch the order to the market.
             start = product[0]
@@ -69,10 +71,10 @@ class LLMStrategy(BaseStrategy):
                 start, previous_power
             )  # calculation of the marginal costs
             volume = unit.calculate_ramp(
-                op_time, previous_power, max_power[start], current_power
+                op_time, previous_power, max_power, current_power
             )
             print(f"> requesting bid for time from {product[0]} to {product[1]}")
-            print(f"> power must be between {min_power[start]} and {max_power[start]}")
+            print(f"> power must be between {min_power} and {max_power}")
             print(f"> {previous_power=}, {current_power=}, {marginal_cost=}")
             try:
                 # prompt = input(
@@ -80,7 +82,10 @@ class LLMStrategy(BaseStrategy):
                 # )
                 # volume, price = prompt.split(" ")
                 # volume, price = float(volume), float(price)
-                price_forecast = unit.forecaster.get_price()
+                #price_forecast = unit.forecaster.get_price(unit.fuel_type)
+                price_forecast = unit.forecaster.get_price("demand")
+                price = 0
+                volume = 0
 
                 # prompt = "create prices and volumes for following products: {product_tuples} with the forecast: {price_forecast}"
 
