@@ -30,8 +30,6 @@ class Optimizer:
     def __init__(
         self,
         storage: Storage,
-        start_date: date,
-        end_date: date,
         prices: pd.DataFrame,
         solar_generation: pd.Series,
         demand: pd.Series,
@@ -40,15 +38,14 @@ class Optimizer:
         """Optimizer for prosumer energy management, giving price recommendations for given products and given timeframes
 
         Args:
-            storages (list[Storage]): The available storages
-            start_date (date): The start date for the optimization. Should be in index of prices and solar_generation.
-            end_date (date): The end date for the optimization. Should be in index of prices and solar_generation.
+            storage (Storage): The available storage.
             demand (pd.Series): The demand data for the optimization. Values should be in kWh per hour (kW).
             prices (pd.DataFrame): The price data for the optimization. Columns should be "eeg", "wholesale", "community", "grid" with values in €/kWh.
             solar_generation (pd.Series): The solar generation data for the optimization. Values should be in kWh per hour (kW).
             storage_use_cases (list[str]): The use cases for energy storage. Allowed values are "eeg", "wholesale", "community", "home"
         """
 
+        self.storage = storage
         self.prices = prices
         self.solar_generation = solar_generation
         self.demand = demand
@@ -56,10 +53,10 @@ class Optimizer:
 
         self.__check_timeseries_indices__()
 
-        self.start_date = start_date
-        self.end_date = end_date
+        self.start_date = self.prices.index[0]
+        self.end_date = self.prices.index[-1]
         self.timesteps = pd.date_range(
-            start=start_date, end=end_date, freq="h", tz="UTC"
+            start=self.start_date, end=self.end_date, freq="15min", tz="UTC"
         )
 
         self.prices = prices
