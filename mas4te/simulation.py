@@ -9,7 +9,7 @@ from assume.common.forecasts import NaiveForecast
 from assume.common.market_objects import MarketConfig, MarketProduct
 
 from mas4te_bidding_strategy import LLMStrategy
-#from mas4te_clearing_mechanism import BatteryClearing
+# from mas4te_clearing_mechanism import BatteryClearing
 
 log = logging.getLogger(__name__)
 
@@ -22,7 +22,8 @@ def init(world: World, n=1):
     simulation_id = "mas4te_simulation"
 
     world.bidding_strategies["llm_strategy"] = LLMStrategy
-    #world.clearing_mechanisms["battery_clearing"] = BatteryClearing
+    # TODO implement BatteryClearing
+    # world.clearing_mechanisms["battery_clearing"] = BatteryClearing
 
     world.setup(
         start=start,
@@ -32,18 +33,18 @@ def init(world: World, n=1):
     )
 
     marketdesign = [
-        # flexibility market which clears
         MarketConfig(
             market_id="BatteryMarket",
             opening_hours=rr.rrule(
-                rr.HOURLY, interval=24, dtstart=start, until=end, cache=True
+                rr.WEEKLY, interval=1, dtstart=start, until=end, cache=True
             ),
             opening_duration=timedelta(hours=1),
             market_mechanism="pay_as_clear",
             product_type="battery",
-            market_products=[MarketProduct(timedelta(hours=1), 24, timedelta(hours=1))],
-            additional_fields=["c_rate", "and_link", "xor_link"],
-            param_dict={"allowed_c_rates": [0.5, 1, 1.5]}
+            market_products=[MarketProduct(
+                duration=timedelta(hours=24*7),
+                count=1,
+                first_delivery=timedelta(hours=12))],
         )
     ]
 
@@ -52,53 +53,36 @@ def init(world: World, n=1):
     for market_config in marketdesign:
         world.add_market(mo_id, market_config)
 
-    world.add_unit_operator("my_demand")
+    world.add_unit_operator(id="storage_demand_operator")
     world.add_unit(
-        "demand1",
-        "demand",
-        "my_demand",
-        # the unit_params have no hints
-        {
+        id="storage_demand_01",
+        unit_type="demand",
+        unit_operator_id="storage_demand_operator",
+        unit_params={
             "min_power": 0,
             "max_power": 1000,
-            "bidding_strategies": {"BatteryMarket": "llm_strategy", "EOM": "llm_strategy"},
+            "bidding_strategies": {"BatteryMarket": "llm_strategy"},
             "technology": "demand",
         },
-        NaiveForecast(index, demand=1000),
+        forecaster=NaiveForecast(index=index, demand=1),
     )
 
-    gas_forecast = NaiveForecast(index, availability=1, fuel_price=3, co2_price=0.1)
-    for i in range(n):
-        world.add_unit_operator(f"my_operator{i}")
-        world.add_unit(
-            f"gas{i}",
-            "power_plant",
-            f"my_operator{i}",
-            {
-                "min_power": 200 / n,
-                "max_power": 1000 / n,
-                "bidding_strategies": {"BatteryMarket": "naive_eom", "EOM": "naive_eom"},
-                "technology": "natural gas",
-            },
-            gas_forecast,
-        )
-    
-    world.add_unit_operator("storage_operator")
+    world.add_unit_operator("storage_provider_operator")
     world.add_unit(
-        "storage1",
-        "storage",
-        "storage_operator",
-        {
-            "max_power_charge": 1e3,
-            "max_power_discharge": 1e3,
-            "max_soc": 1e3, # kWh
+        id="storage_provider_01",
+        unit_type="storage",
+        unit_operator_id="storage_provider_operator",
+        unit_params={
+            "max_power_charge": 1,
+            "max_power_discharge": 1,
+            "max_soc": 10,
             "min_soc": 0,
             "efficiency_charge": 0.8,
             "efficiency_discharge": 0.85,
-            "bidding_strategies": {"BatteryMarket": "flexable_eom_storage", "EOM": "flexable_eom_storage"},
+            "bidding_strategies": {"BatteryMarket": "llm_strategy"},
             "technology": "battery_storage",
         },
-        NaiveForecast(index, availability=1, fuel_price=0.2, co2_price=0),
+        forecaster=NaiveForecast(index=index, availability=1, demand=0, fuel_price=0, co2_price=0),
     )
 
 
