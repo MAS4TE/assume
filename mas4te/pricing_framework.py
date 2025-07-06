@@ -29,7 +29,7 @@ class Storage:
 class Optimizer:
     def __init__(
         self,
-        storages: list[Storage],
+        storage: Storage,
         start_date: date,
         end_date: date,
         prices: pd.DataFrame,
@@ -61,9 +61,6 @@ class Optimizer:
         self.timesteps = pd.date_range(
             start=start_date, end=end_date, freq="h", tz="UTC"
         )
-
-        self.storage_ids = [storage.id for storage in storages]
-        self.storages = {storage.id: storage for storage in storages}
 
         self.prices = prices
         self.solar_generation = solar_generation
@@ -124,7 +121,7 @@ class Optimizer:
         self.model.pv_to_storage = pyo.Var(
             self.timesteps,
             self.storage_use_cases,
-            self.storage_ids,
+            self.storage.id,
             domain=pyo.NonNegativeReals,
         )
 
@@ -135,43 +132,43 @@ class Optimizer:
         self.model.storage_level = pyo.Var(
             self.timesteps,
             self.storage_use_cases,
-            self.storage_ids,
+            self.storage.id,
             domain=pyo.NonNegativeReals,
         )
 
         # selling from storage for EEG
         self.model.storage_to_eeg = pyo.Var(
-            self.timesteps, self.storage_ids, domain=pyo.NonNegativeReals
+            self.timesteps, self.storage.id, domain=pyo.NonNegativeReals
         )
 
         # seeling from storage on wholesale
         self.model.storage_to_wholesale = pyo.Var(
-            self.timesteps, self.storage_ids, domain=pyo.NonNegativeReals
+            self.timesteps, self.storage.id, domain=pyo.NonNegativeReals
         )
 
         # selling from storage on community
         self.model.storage_to_community = pyo.Var(
             self.timesteps,
-            self.storage_ids,
+            self.storage.id,
             domain=pyo.NonNegativeReals,
             bounds=(0, 0),
         )
 
         # using energy from storage at home
         self.model.storage_to_home = pyo.Var(
-            self.timesteps, self.storage_ids, domain=pyo.NonNegativeReals
+            self.timesteps, self.storage.id, domain=pyo.NonNegativeReals
         )
 
         # charging storage from wholesale market
         self.model.wholesale_to_storage = pyo.Var(
-            self.timesteps, self.storage_ids, domain=pyo.NonNegativeReals
+            self.timesteps, self.storage.id, domain=pyo.NonNegativeReals
         )
 
         # charging storage from community market
         # remove bounds for activation
         self.model.community_to_storage = pyo.Var(
             self.timesteps,
-            self.storage_ids,
+            self.storage.id,
             domain=pyo.NonNegativeReals,
             bounds=(0, 0),
         )
@@ -184,7 +181,7 @@ class Optimizer:
 
         # charging storage from supplier
         self.model.supplier_to_storage = pyo.Var(
-            self.timesteps, self.storage_ids, domain=pyo.NonNegativeReals
+            self.timesteps, self.storage.id, domain=pyo.NonNegativeReals
         )
 
         # buying energy from supplier
@@ -200,7 +197,7 @@ class Optimizer:
         # consumption must equal supply (from PV system, supplier, community market, PV system)
         def restrict_demand(model, timestep):
             return (
-                sum(model.storage_to_home[timestep, id] for id in self.storage_ids)
+                sum(model.storage_to_home[timestep, id] for id in self.storage.id)
                 + model.pv_to_home[timestep]
                 + model.supplier_to_home[timestep]
                 + model.community_to_home[timestep]
@@ -213,7 +210,7 @@ class Optimizer:
 
         # use of PV system must be smaller or equal than PV system generation
         def restrict_solar_gen(model, timestep):
-            uses_ids = list(product(self.storage_use_cases, self.storage_ids))
+            uses_ids = list(product(self.storage_use_cases, self.storage.id))
             return (
                 sum(model.pv_to_storage[timestep, use, id] for use, id in uses_ids)
                 + model.pv_to_eeg[timestep]
@@ -237,11 +234,11 @@ class Optimizer:
                 + model.wholesale_to_storage[timestep, storage_id]
                 + model.community_to_storage[timestep, storage_id]
                 + model.supplier_to_storage[timestep, storage_id]
-                <= self.storages[storage_id].c_rate
+                <= self.storage.c_rate
             )
 
         self.model.storage_charge_restriction = pyo.Constraint(
-            self.timesteps, self.storage_ids, rule=restrict_storage_charge
+            self.timesteps, self.storage.id, rule=restrict_storage_charge
         )
 
         # energy flow FROM storage must be smaller than c_rate
@@ -251,11 +248,11 @@ class Optimizer:
                 + model.storage_to_wholesale[timestep, storage_id]
                 + model.storage_to_community[timestep, storage_id]
                 + model.storage_to_home[timestep, storage_id]
-                <= self.storages[storage_id].c_rate
+                <= self.storage.c_rate
             )
 
         self.model.storage_discharge_restriction = pyo.Constraint(
-            self.timesteps, self.storage_ids, rule=restrict_storage_discharge
+            self.timesteps, self.storage.id, rule=restrict_storage_discharge
         )
 
         # storage level must be smaller than volume
@@ -265,11 +262,11 @@ class Optimizer:
                     model.storage_level[timestep, use, storage_id]
                     for use in self.storage_use_cases
                 )
-                <= self.storages[storage_id].volume
+                <= self.storage.volume
             )
 
         self.model.storage_level_restriction = pyo.Constraint(
-            self.timesteps, self.storage_ids, rule=restrict_soc_max
+            self.timesteps, self.storage.id, rule=restrict_soc_max
         )
 
         # storage level must be larger than 0
@@ -283,7 +280,7 @@ class Optimizer:
             )
 
         self.model.storage_level_non_negative = pyo.Constraint(
-            self.timesteps, self.storage_ids, rule=restrict_soc_min
+            self.timesteps, self.storage.id, rule=restrict_soc_min
         )
 
         if "eeg" in self.storage_use_cases:
@@ -307,7 +304,7 @@ class Optimizer:
                     )
 
             self.model.soc_eeg_restriction = pyo.Constraint(
-                self.timesteps, self.storage_ids, rule=restrict_soc_eeg
+                self.timesteps, self.storage.id, rule=restrict_soc_eeg
             )
 
         if "wholesale" in self.storage_use_cases:
@@ -333,7 +330,7 @@ class Optimizer:
                     )
 
             self.model.soc_wholesale_restriction = pyo.Constraint(
-                self.timesteps, self.storage_ids, rule=restrict_soc_wholesale
+                self.timesteps, self.storage.id, rule=restrict_soc_wholesale
             )
 
         if "community" in self.storage_use_cases:
@@ -359,7 +356,7 @@ class Optimizer:
                     )
 
             self.model.soc_community_restriction = pyo.Constraint(
-                self.timesteps, self.storage_ids, rule=restrict_soc_community
+                self.timesteps, self.storage.id, rule=restrict_soc_community
             )
 
         if "home" in self.storage_use_cases:
@@ -383,7 +380,7 @@ class Optimizer:
                     )
 
             self.model.soc_home_restriction = pyo.Constraint(
-                self.timesteps, self.storage_ids, rule=restrict_soc_home
+                self.timesteps, self.storage.id, rule=restrict_soc_home
             )
 
         log.info("Model constraints set up successfully.")
@@ -397,7 +394,7 @@ class Optimizer:
             sum(
                 self.model.storage_to_community[timestep, storage_id]
                 * self.prices.loc[timestep, "community"]
-                for timestep, storage_id in product(self.timesteps, self.storage_ids)
+                for timestep, storage_id in product(self.timesteps, self.storage.id)
             )
             # selling from pv to community market
             + sum(
@@ -409,7 +406,7 @@ class Optimizer:
             - sum(
                 self.model.community_to_storage[timestep, storage_id]
                 * self.prices.loc[timestep, "community"]
-                for timestep, storage_id in product(self.timesteps, self.storage_ids)
+                for timestep, storage_id in product(self.timesteps, self.storage.id)
             )
             # buying from community market to home
             - sum(
@@ -425,7 +422,7 @@ class Optimizer:
             -sum(
                 self.model.supplier_to_storage[timestep, storage_id]
                 * self.prices.loc[timestep, "grid"]
-                for timestep, storage_id in product(self.timesteps, self.storage_ids)
+                for timestep, storage_id in product(self.timesteps, self.storage.id)
             )
             # buying energy from supplier to home
             - sum(
@@ -441,7 +438,7 @@ class Optimizer:
             sum(
                 self.model.storage_to_eeg[timestep, storage_id]
                 * self.prices.loc[timestep, "eeg"]
-                for timestep, storage_id in product(self.timesteps, self.storage_ids)
+                for timestep, storage_id in product(self.timesteps, self.storage.id)
             )
             # selling from PV for EEG
             + sum(
@@ -456,13 +453,13 @@ class Optimizer:
             sum(
                 self.model.storage_to_wholesale[timestep, storage_id]
                 * self.prices.loc[timestep, "wholesale"]
-                for timestep, storage_id in product(self.timesteps, self.storage_ids)
+                for timestep, storage_id in product(self.timesteps, self.storage.id)
             )
             # buying from wholesale to storage
             - sum(
                 self.model.wholesale_to_storage[timestep, storage_id]
                 * self.prices.loc[timestep, "wholesale"]
-                for timestep, storage_id in product(self.timesteps, self.storage_ids)
+                for timestep, storage_id in product(self.timesteps, self.storage.id)
             )
         )
 
@@ -497,7 +494,7 @@ class Optimizer:
         demand_coverage["from_storage"] = [
             sum(
                 self.model.storage_to_home[timestep, storage_id].value
-                for storage_id in self.storage_ids
+                for storage_id in self.storage.id
             )
             for timestep in self.timesteps
         ]
@@ -523,28 +520,28 @@ class Optimizer:
         pv_usage["to_storage_home"] = [
             sum(
                 self.model.pv_to_storage[t, "home", sid].value
-                for sid in self.storage_ids
+                for sid in self.storage.id
             )
             for t in self.timesteps
         ]
         pv_usage["to_storage_eeg"] = [
             sum(
                 self.model.pv_to_storage[t, "eeg", sid].value
-                for sid in self.storage_ids
+                for sid in self.storage.id
             )
             for t in self.timesteps
         ]
         pv_usage["to_storage_wholesale"] = [
             sum(
                 self.model.pv_to_storage[t, "wholesale", sid].value
-                for sid in self.storage_ids
+                for sid in self.storage.id
             )
             for t in self.timesteps
         ]
         pv_usage["to_storage_community"] = [
             sum(
                 self.model.pv_to_storage[t, "community", sid].value
-                for sid in self.storage_ids
+                for sid in self.storage.id
             )
             for t in self.timesteps
         ]
@@ -557,7 +554,7 @@ class Optimizer:
         for use_case in self.storage_use_cases:
             storage_usage[f"soc_{use_case}"] = [
                 self.model.storage_level[t, use_case, sid].value
-                for t, sid in product(self.timesteps, self.storage_ids)
+                for t, sid in product(self.timesteps, self.storage.id)
             ]
 
         return storage_usage
