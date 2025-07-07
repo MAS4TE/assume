@@ -4,61 +4,80 @@ import requests
 import pandas as pd
 from pricing_framework import Storage, Optimizer
 
-# TODO: implement
-def build_demand_timeseries(unit: SupportsMinMaxCharge) -> pd.DataFrame:
-    """Builds a demand timeseries for the given unit.
 
-    Returns:
-        pd.DataFrame: The demand timeseries for the unit.
-    """
-    pass
-
-# TODO: implement
-def build_price_timeseries(unit: SupportsMinMaxCharge) -> pd.DataFrame:
-    """Builds a price timeseries for the given unit.
+def get_price_recommendations(
+          unit: SupportsMinMaxCharge,
+          product: Product,
+) -> dict[float: float]:
+    """Calculates price recommendations for specific storage volumes depending on forecasted price, energy demand and solar generation for a specific unit.
 
     Args:
-        unit (SupportsMinMaxCharge): The unit to build the price timeseries for.
+        unit (SupportsMinMaxCharge): The unit to calculate bids for.
+        product (Product): The product for which to calculate the price recommendations.
 
     Returns:
-        pd.DataFrame: The price timeseries for the unit.
+       dict: monetary worth (marginal costs) of the storage volume to the unit operator with volume as key and worth as value.
     """
-    pass
 
-# TODO: implement
-def build_solar_generation_timeseries(unit: SupportsMinMaxCharge) -> pd.DataFrame:
-    """Builds a solar generation timeseries for the given unit.
+    # get start and end time from product
+    start, end = product[0], product[1]
 
-    Args:
-        unit (SupportsMinMaxCharge): The unit to build the solar generation timeseries for.
+    # start of by reading in / generating the data for demand and costs
+    demand_timeseries = unit.forecaster["demand"][start:end] # build_demand_timeseries(unit)
+    pricing_timeseries = unit.forecaster["price"]
+    solar_generation = unit.forecaster["solar_generation"]
 
-    Returns:
-        pd.DataFrame: The solar generation timeseries for the unit.
-    """
-    pass
+    # build storages to optimize for
+    # TODO: Implement func or pass via parameter
+    storages_to_calculate = build_storages_to_calculate()
 
-# TODO: implement
-def build_storages_to_calculate() -> list[Storage]:
-    """Builds a list of storages to calculate for.
+    # baseline storage volume
+    baseline_storage = unit.baseline_storage
 
-    Returns:
-        list[Storage]: The list of storages to calculate for.
-    """
-    # This is a placeholder implementation. Replace with actual logic to build storages.
-    return [Storage(id=str(i), volume=i, c_rate=1, efficiency=0.9) for i in range(1, 10)]
+    # get baseline optimization, to know how much prosumer has to pay with current setup
+    optimizer = Optimizer(
+        storage=baseline_storage,
+        prices=pricing_timeseries,
+        solar_generation=solar_generation,
+        demand=demand_timeseries,
+        storage_use_cases=["eeg", "wholesale", "community", "home"],
+    )
+    optimizer.optimize(solver="gurobi")
+    baseline_cost = optimizer.model.objective()
 
-# TODO: implement
-def get_baseline_storage(unit: SupportsMinMaxCharge) -> Storage:
-    """Gets the baseline storage for the given unit.
+    # dictionary to hold the worth of each storage in
+    # with volume as key and worth as value
+    storages_worth = {}
 
-    Args:
-        unit (SupportsMinMaxCharge): The unit to get the baseline storage for.
+    for storage in storages_to_calculate:
+        # create the optimizer
+        optimizer = Optimizer(
+            storage=storage,
+            prices=pricing_timeseries,
+            solar_generation=solar_generation,
+            demand=demand_timeseries,
+            storage_use_cases=["eeg", "wholesale", "community", "home"],
+        )
 
-    Returns:
-        Storage: The baseline storage for the unit.
-    """
-    # This is a placeholder implementation. Replace with actual logic to get baseline storage.
-    return Storage(id="baseline", volume=0, c_rate=1, efficiency=0.9)
+        # run the optimization
+        optimizer.optimize(solver="gurobi")
+
+        # minimum cost in this scenario is the objective of the optimization model
+        # we're optimizing energy dispatch to potential storage to minimize costs, thus
+        # we're not calculating optimal storage size or the worth of the storage, but the costs
+        # associated with the storage volume
+        # to get the worth of the storage, we need to compare the costs with the baseline costs, e. g.
+        # the costs of the current setup without storage (buyer side) or with a specific storage volume (seller side)
+        minimum_cost = optimizer.model.objective()
+
+        # worth of the storage is the difference between the baseline cost and the minimum cost
+        worth = minimum_cost - baseline_cost
+
+        # add to storage_worth dictionary
+        storages_worth[storage.volume] = worth
+
+    return storages_worth
+
 
 class LLMBuyStrategy(BaseStrategy):
     """
@@ -67,7 +86,7 @@ class LLMBuyStrategy(BaseStrategy):
     Params:
         llm_api_url (str): The URL of the LLM API to use for generating bids.
     """
-    def __init__(self, llm_api_url, *args, **kwargs ):
+    def __init__(self, llm_api_url = None, *args, **kwargs ):
         super().__init__()
         self.api_url = llm_api_url
         self.headers = {"Content-Type": "application/json"}
@@ -100,51 +119,14 @@ class LLMBuyStrategy(BaseStrategy):
         Returns:
             Orderbook: The calculated order book with bids.
         """
-        
-        # start of by reading in / generating the data for demand and costs
-        demand_timeseries = build_demand_timeseries(unit)
-        pricing_timeseries = build_price_timeseries(unit)
-        solar_generation = build_solar_generation_timeseries(unit)
 
-        # build storages to optimize for
-        storages_to_calculate = build_storages_to_calculate()
+        # iterate over each product (which is only one in phase 1)
+        for product in product_tuples:
 
-        # baseline storage volume
-        baseline_storage = get_baseline_storage(unit)
+            # get price recommendations for the product
+            volume_price_recommandations = get_price_recommendations(unit=unit, product=product)
 
-        # get baseline optimization, to know how much prosumer has to pay with current setup
-        optimizer = Optimizer(
-            storage=baseline_storage,
-            prices=pricing_timeseries,
-            solar_generation=solar_generation,
-            demand=demand_timeseries,
-            storage_use_cases=["eeg", "wholesale", "community", "home"],
-        )
-        optimizer.optimize(solver="gurobi")
-        baseline_cost = optimizer.model.objective()
+        #####################################################
+        #               LLM CALL GOES HERE                  #
+        #####################################################
 
-        # dictionary to hold the worth of each storage in
-        # with volume as key and worth as value
-        storages_worth = {}
-
-        for storage in storages_to_calculate:
-            # create the optimizer
-            optimizer = Optimizer(
-                storage=storage,
-                prices=pricing_timeseries,
-                solar_generation=solar_generation,
-                demand=demand_timeseries,
-                storage_use_cases=["eeg", "wholesale", "community", "home"],
-            )
-
-            # run the optimization
-            optimizer.optimize(solver="gurobi")
-
-            # minimum cost in this scenario is the objective of the optimization model
-            minimum_cost = optimizer.model.objective()
-
-            # worth of the storage is the difference between the baseline cost and the minimum cost
-            worth = minimum_cost - baseline_cost
-
-            # add to storage_worth dictionary
-            storages_worth[storage.volume] = worth
