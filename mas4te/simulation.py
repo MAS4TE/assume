@@ -11,6 +11,8 @@ from assume.common.market_objects import MarketConfig, MarketProduct
 from mas4te_bidding_strategy import LLMBuyStrategy
 # from mas4te_clearing_mechanism import BatteryClearing
 
+import pandas as pd
+
 log = logging.getLogger(__name__)
 
 
@@ -27,7 +29,7 @@ def init(world: World, n=1):
     simulation_id = "mas4te_simulation"
 
     # add possible bidding strategies
-    world.bidding_strategies["llm_strategy"] = LLMBuyStrategy
+    world.bidding_strategies["llm_buy_strategy"] = LLMBuyStrategy
 
     # add possible clearing mechanism
     # TODO implement BatteryClearing
@@ -67,15 +69,24 @@ def init(world: World, n=1):
         world.add_market(mo_id, market_config)
 
     # create and add demand (buy) unit
+    # we need a demand, solar generation and price forecast to build bids
+    # so we have to read them in before providing them to the forecaster of the unit
+    # TODO: replace with actual data reading
+    demand = pd.read_csv()
+    prices = pd.read_csv()
+    solar_generation = pd.read_csv()
+
+    # actually create and add the demand unit
     world.add_unit_operator(id="storage_demand_operator")
     world.add_unit(
         id="storage_demand_01",
         unit_type="demand",
         unit_operator_id="storage_demand_operator",
         unit_params={
-            "min_power": 0,
-            "max_power": 1000,
-            "bidding_strategies": {"BatteryMarket": "llm_strategy"},
+            "baseline_storage": 0,  # unit has no storage
+            "max_power": 1000,      # max 1.000 kW demand
+            "min_power": 0,         # no minimum demand
+            "bidding_strategies": {"BatteryMarket": "llm_buy_strategy"},
             "technology": "demand",
         },
         forecaster=NaiveForecast(
@@ -90,13 +101,13 @@ def init(world: World, n=1):
         unit_type="storage",
         unit_operator_id="storage_provider_operator",
         unit_params={
-            "max_power_charge": 1,
-            "max_power_discharge": 1,
-            "max_soc": 10,
-            "min_soc": 0,
-            "efficiency_charge": 0.8,
-            "efficiency_discharge": 0.85,
-            "bidding_strategies": {"BatteryMarket": "llm_strategy"},
+            "max_power_charge": 1,          # max 1 kW charge
+            "max_power_discharge": 1,       # max 1 kW discharge
+            "max_soc": 10,                  # max 10 kWh of storage capacity
+            "min_soc": 0,                   # no mimimum fill level
+            "efficiency_charge": 0.975,     # charge and discharge to combine to 95% efficiency
+            "efficiency_discharge": 0.975,
+            "bidding_strategies": {"BatteryMarket": "llm_sell_strategy"},
             "technology": "battery_storage",
         },
         forecaster=NaiveForecast(
