@@ -8,23 +8,32 @@ from assume.common.fast_pandas import FastIndex
 from assume.common.forecasts import NaiveForecast
 from assume.common.market_objects import MarketConfig, MarketProduct
 
-from mas4te_bidding_strategy import LLMStrategy
+from mas4te_bidding_strategy import LLMBuyStrategy
 # from mas4te_clearing_mechanism import BatteryClearing
 
 log = logging.getLogger(__name__)
 
 
 def init(world: World, n=1):
+
+    # set start and end date
     start = datetime(2025, 1, 1)
     end = datetime(2025, 3, 1)
 
-    index = FastIndex(start, end, freq="h")
+    # create index
+    index = FastIndex(start, end, freq="15min")
+
+    # set simulation ID
     simulation_id = "mas4te_simulation"
 
-    world.bidding_strategies["llm_strategy"] = LLMStrategy
+    # add possible bidding strategies
+    world.bidding_strategies["llm_strategy"] = LLMBuyStrategy
+
+    # add possible clearing mechanism
     # TODO implement BatteryClearing
     # world.clearing_mechanisms["battery_clearing"] = BatteryClearing
 
+    # set up world
     world.setup(
         start=start,
         end=end,
@@ -32,27 +41,32 @@ def init(world: World, n=1):
         simulation_id=simulation_id,
     )
 
+    # create market design
     marketdesign = [
         MarketConfig(
             market_id="BatteryMarket",
             opening_hours=rr.rrule(
-                rr.WEEKLY, interval=1, dtstart=start, until=end, cache=True
+                rr.WEEKLY, interval=1, dtstart=start, until=end, cache=True # weekly battery market with the next week tradeable
             ),
             opening_duration=timedelta(hours=1),
             market_mechanism="pay_as_clear",
             product_type="battery",
             market_products=[MarketProduct(
-                duration=timedelta(hours=24*7),
-                count=1,
-                first_delivery=timedelta(hours=12))],
+                duration=timedelta(hours=24*7),         # each product (storage rent) will be 1 week
+                count=1,                                # we will only trade the next week, not any week after that
+                first_delivery=timedelta(hours=12))],   # delivery will take place 12 hours after market close
         )
     ]
 
+    # create and add market operator
     mo_id = "market_operator"
     world.add_market_operator(id=mo_id)
+
+    # add market to world
     for market_config in marketdesign:
         world.add_market(mo_id, market_config)
 
+    # create and add demand (buy) unit
     world.add_unit_operator(id="storage_demand_operator")
     world.add_unit(
         id="storage_demand_01",
@@ -64,9 +78,12 @@ def init(world: World, n=1):
             "bidding_strategies": {"BatteryMarket": "llm_strategy"},
             "technology": "demand",
         },
-        forecaster=NaiveForecast(index=index, demand=1),
+        forecaster=NaiveForecast(
+            index=index,
+            demand=1),
     )
 
+    # create and add provider (sell) unit
     world.add_unit_operator("storage_provider_operator")
     world.add_unit(
         id="storage_provider_01",
@@ -82,7 +99,12 @@ def init(world: World, n=1):
             "bidding_strategies": {"BatteryMarket": "llm_strategy"},
             "technology": "battery_storage",
         },
-        forecaster=NaiveForecast(index=index, availability=1, demand=0, fuel_price=0, co2_price=0),
+        forecaster=NaiveForecast(
+            index=index,
+            availability=1, # always available
+            demand=0,       # no battery demand
+            fuel_price=0,   # no fuel price
+            co2_price=0),   # no co2 price
     )
 
 
