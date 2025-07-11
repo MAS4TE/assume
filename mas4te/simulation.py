@@ -1,29 +1,60 @@
+# SPDX-FileCopyrightText: ASSUME Developers
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 import logging
 from datetime import datetime, timedelta
 
+# from mas4te_clearing_mechanism import BatteryClearing
+import pandas as pd
 from dateutil import rrule as rr
+from mas4te_bidding_strategy import LLMBuyStrategy
 
 from assume import World
 from assume.common.fast_pandas import FastIndex
 from assume.common.forecasts import NaiveForecast
 from assume.common.market_objects import MarketConfig, MarketProduct
 
-from mas4te_bidding_strategy import LLMBuyStrategy
-# from mas4te_clearing_mechanism import BatteryClearing
-
-import pandas as pd
-
 log = logging.getLogger(__name__)
 
 
-def init(world: World, n=1):
+def read_forecasts(start, end):
+    demand_forecast = pd.read_csv(
+        "./example_data/demand.csv", index_col=0, parse_dates=True
+    )["demand"][start:end]
+    wholesale_price = pd.read_csv(
+        "./example_data/prices.csv", index_col=0, parse_dates=True
+    )["wholesale"][start:end]
+    eeg_price = pd.read_csv("./example_data/prices.csv", index_col=0, parse_dates=True)[
+        "eeg"
+    ][start:end]
+    community_price = pd.read_csv(
+        "./example_data/prices.csv", index_col=0, parse_dates=True
+    )["community"][start:end]
+    grid_price = pd.read_csv(
+        "./example_data/prices.csv", index_col=0, parse_dates=True
+    )["grid"][start:end]
+    solar_generation_forecast = pd.read_csv(
+        "./example_data/solar.csv", index_col=0, parse_dates=True
+    )["solar"][start:end]
 
+    return {
+        "demand": demand_forecast,
+        "wholesale_price": wholesale_price,
+        "eeg_price": eeg_price,
+        "community_price": community_price,
+        "grid_price": grid_price,
+        "solar_generation_forecast": solar_generation_forecast,
+    }
+
+
+def init(world: World, n=1):
     # set start and end date
-    start = datetime(2025, 1, 1)
-    end = datetime(2025, 3, 1)
+    start = datetime(2023, 1, 1, hour=0)
+    end = datetime(2023, 1, 8)
 
     # create index
-    index = FastIndex(start, end, freq="15min")
+    index = FastIndex(start, end, freq="h")
 
     # set simulation ID
     simulation_id = "mas4te_simulation"
@@ -48,15 +79,24 @@ def init(world: World, n=1):
         MarketConfig(
             market_id="BatteryMarket",
             opening_hours=rr.rrule(
-                rr.WEEKLY, interval=1, dtstart=start, until=end, cache=True # weekly battery market with the next week tradeable
+                rr.WEEKLY,
+                interval=1,
+                dtstart=start,
+                until=end,
+                cache=True,  # weekly battery market with the next week tradeable
             ),
             opening_duration=timedelta(hours=1),
             market_mechanism="pay_as_clear",
             product_type="battery",
-            market_products=[MarketProduct(
-                duration=timedelta(hours=24*7),         # each product (storage rent) will be 1 week
-                count=1,                                # we will only trade the next week, not any week after that
-                first_delivery=timedelta(hours=12))],   # delivery will take place 12 hours after market close
+            market_products=[
+                MarketProduct(
+                    duration=timedelta(
+                        hours=24 * 7
+                    ),  # each product (storage rent) will be 1 week
+                    count=1,  # we will only trade the next week, not any week after that
+                    first_delivery=timedelta(hours=12),
+                )
+            ],  # delivery will take place 12 hours after market close
         )
     ]
 
@@ -71,10 +111,7 @@ def init(world: World, n=1):
     # create and add demand (buy) unit
     # we need a demand, solar generation and price forecast to build bids
     # so we have to read them in before providing them to the forecaster of the unit
-    # TODO: replace with actual data reading
-    demand = pd.read_csv()
-    prices = pd.read_csv()
-    solar_generation = pd.read_csv()
+    forecasts = read_forecasts(start, end)
 
     # actually create and add the demand unit
     world.add_unit_operator(id="storage_demand_operator")
@@ -84,14 +121,21 @@ def init(world: World, n=1):
         unit_operator_id="storage_demand_operator",
         unit_params={
             "baseline_storage": 0,  # unit has no storage
-            "max_power": 1000,      # max 1.000 kW demand
-            "min_power": 0,         # no minimum demand
+            "max_power": 1000,  # max 1.000 kW demand
+            "min_power": 0,  # no minimum demand
             "bidding_strategies": {"BatteryMarket": "llm_buy_strategy"},
+            "bidding_params": {"baseline_storage": 0},
             "technology": "demand",
         },
         forecaster=NaiveForecast(
             index=index,
-            demand=1),
+            demand=forecasts["demand"],
+            wholesale_price=forecasts["wholesale_price"],
+            eeg_price=forecasts["eeg_price"],
+            community_price=forecasts["community_price"],
+            grid_price=forecasts["grid_price"],
+            solar_generation_forecast=forecasts["solar_generation_forecast"],
+        ),
     )
 
     # create and add provider (sell) unit
@@ -101,21 +145,23 @@ def init(world: World, n=1):
         unit_type="storage",
         unit_operator_id="storage_provider_operator",
         unit_params={
-            "max_power_charge": 1,          # max 1 kW charge
-            "max_power_discharge": 1,       # max 1 kW discharge
-            "max_soc": 10,                  # max 10 kWh of storage capacity
-            "min_soc": 0,                   # no mimimum fill level
-            "efficiency_charge": 0.975,     # charge and discharge to combine to 95% efficiency
+            "max_power_charge": 1,  # max 1 kW charge
+            "max_power_discharge": 1,  # max 1 kW discharge
+            "max_soc": 20,  # max 20 kWh of storage capacity (equal to baseline)
+            "min_soc": 0,  # no mimimum fill level
+            "efficiency_charge": 0.975,  # charge and discharge to combine to 95% efficiency
             "efficiency_discharge": 0.975,
-            "bidding_strategies": {"BatteryMarket": "llm_sell_strategy"},
+            "bidding_strategies": {"BatteryMarket": "llm_buy_strategy"},
+            "bidding_params": {"baseline_storage": 20},
             "technology": "battery_storage",
         },
         forecaster=NaiveForecast(
             index=index,
-            availability=1, # always available
-            demand=0,       # no battery demand
-            fuel_price=0,   # no fuel price
-            co2_price=0),   # no co2 price
+            availability=1,  # always available
+            demand=0,  # no battery demand
+            fuel_price=0,  # no fuel price
+            co2_price=0,
+        ),  # no co2 price
     )
 
 
