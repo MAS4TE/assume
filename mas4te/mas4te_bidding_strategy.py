@@ -10,7 +10,7 @@ from assume.common.base import BaseStrategy, SupportsMinMaxCharge
 from assume.common.market_objects import MarketConfig, Orderbook, Product
 
 
-class LLMBuyStrategy(BaseStrategy):
+class LLMStrategy(BaseStrategy):
     """
     A strategy that uses a Large Language Model (LLM) for a storage buyer.
 
@@ -46,7 +46,7 @@ class LLMBuyStrategy(BaseStrategy):
         unit: SupportsMinMaxCharge,
         product: Product,
         storages_to_calculate: list[Storage],
-    ) -> dict[float:float]:
+    ) -> dict[float, float]:
         """Calculates price recommendations for specific storage volumes depending on forecasted price, energy demand and solar generation for a specific unit.
 
         Args:
@@ -140,6 +140,13 @@ class LLMBuyStrategy(BaseStrategy):
         result = response.json()
         return result.get("choices", [{}])[0].get("text", "")
 
+
+class LLMBuyStrategy(LLMStrategy):
+    """A strategy that uses a Large Language Model (LLM) for a storage buyer."""
+
+    def __init__(self, llm_api_url=None, baseline_storage=0, *args, **kwargs):
+        super().__init__(llm_api_url, baseline_storage, *args, **kwargs)
+
     def calculate_bids(
         self,
         unit: SupportsMinMaxCharge,
@@ -169,7 +176,59 @@ class LLMBuyStrategy(BaseStrategy):
             )
 
         print("#####################################################")
-        print("Volumes and their values:")
+        print("Volumes and their values for buyer:")
+        for volume, value in volumes_values.items():
+            print(f"Volume: {volume}, Value: {value}")
+        print("#####################################################")
+        print(
+            "This input is only here to pause the simulation and allow you to see the recommendations"
+        )
+        print("Input something to continue...")
+        input()
+
+        #####################################################
+        #               LLM CALL GOES HERE                  #
+        #   TO CHOOSE FROM RECOMMENDATIONS OR ALTER THEM    #
+        #####################################################
+
+
+
+class LLMSellStrategy(LLMStrategy):
+    """A strategy that uses a Large Language Model (LLM) for a storage seller."""
+
+    def __init__(self, llm_api_url=None, baseline_storage=0, *args, **kwargs):
+        super().__init__(llm_api_url, baseline_storage, *args, **kwargs)
+
+    def calculate_bids(
+        self,
+        unit: SupportsMinMaxCharge,
+        market_config: MarketConfig,
+        product_tuples: list[Product],
+        **kwargs,
+    ) -> Orderbook:
+        """Calculates the value of multiple storage volumes for a predicted demand and price timeseries via linear optimization.
+
+        Args:
+            unit (SupportsMinMaxCharge): The unit to calculate bids for.
+            market_config (MarketConfig): The market configuration to use.
+            product_tuples (list[Product]): The list of products to calculate bids for.
+
+        Returns:
+            Orderbook: The calculated order book with bids.
+        """
+
+        # iterate over each product (which is only one in phase 1)
+        for product in product_tuples:
+            # get price recommendations for the product
+            # for given storages to calculate the wort (value) for
+            # if the LLM should provide some storages that should be calculated, it can be passed here
+            # otherwise change the default storages in the build_storages_to_calculate method
+            volumes_values = self.calculate_storage_values(
+                unit=unit, product=product, storages_to_calculate=None
+            )
+
+        print("#####################################################")
+        print("Volumes and their values for seller:")
         for volume, value in volumes_values.items():
             print(f"Volume: {volume}, Value: {value}")
         print("#####################################################")

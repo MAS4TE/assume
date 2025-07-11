@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 # from mas4te_clearing_mechanism import BatteryClearing
 import pandas as pd
 from dateutil import rrule as rr
-from mas4te_bidding_strategy import LLMBuyStrategy
+from mas4te_bidding_strategy import LLMBuyStrategy, LLMSellStrategy
 
 from assume import World
 from assume.common.fast_pandas import FastIndex
@@ -61,6 +61,7 @@ def init(world: World, n=1):
 
     # add possible bidding strategies
     world.bidding_strategies["llm_buy_strategy"] = LLMBuyStrategy
+    world.bidding_strategies["llm_sell_strategy"] = LLMSellStrategy
 
     # add possible clearing mechanism
     # TODO implement BatteryClearing
@@ -124,7 +125,7 @@ def init(world: World, n=1):
             "max_power": 1000,  # max 1.000 kW demand
             "min_power": 0,  # no minimum demand
             "bidding_strategies": {"BatteryMarket": "llm_buy_strategy"},
-            "bidding_params": {"baseline_storage": 0},
+            "bidding_params": {"baseline_storage": 0},  # baseline to compare with
             "technology": "demand",
         },
         forecaster=NaiveForecast(
@@ -151,8 +152,8 @@ def init(world: World, n=1):
             "min_soc": 0,  # no mimimum fill level
             "efficiency_charge": 0.975,  # charge and discharge to combine to 95% efficiency
             "efficiency_discharge": 0.975,
-            "bidding_strategies": {"BatteryMarket": "llm_buy_strategy"},
-            "bidding_params": {"baseline_storage": 20},
+            "bidding_strategies": {"BatteryMarket": "llm_sell_strategy"},
+            "bidding_params": {"baseline_storage": 20},  # baseline to compare with, should be equal to max_soc
             "technology": "battery_storage",
         },
         forecaster=NaiveForecast(
@@ -160,8 +161,8 @@ def init(world: World, n=1):
             availability=1,  # always available
             demand=0,  # no battery demand
             fuel_price=0,  # no fuel price
-            co2_price=0,
-        ),  # no co2 price
+            co2_price=0,  # no CO2 price
+        ),
     )
 
 
