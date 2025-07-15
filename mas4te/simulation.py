@@ -50,7 +50,7 @@ def read_forecasts(start, end):
 
 def init(world: World, n=1):
     # set start and end date
-    start = datetime(2023, 1, 1, hour=0)
+    start = datetime(2023, 1, 1, hour=13)
     end = datetime(2023, 1, 8)
 
     # create index
@@ -88,7 +88,7 @@ def init(world: World, n=1):
             ),
             opening_duration=timedelta(hours=1),
             market_mechanism="pay_as_clear",
-            product_type="battery",
+            product_type="power",
             market_products=[
                 MarketProduct(
                     duration=timedelta(
@@ -98,6 +98,7 @@ def init(world: World, n=1):
                     first_delivery=timedelta(hours=12),
                 )
             ],  # delivery will take place 12 hours after market close
+            additional_fields=["kw_charge, kw_discharge"],
         )
     ]
 
@@ -130,7 +131,8 @@ def init(world: World, n=1):
         },
         forecaster=NaiveForecast(
             index=index,
-            demand=forecasts["demand"],
+            demand=0,
+            energy_demand=forecasts["demand"],
             wholesale_price=forecasts["wholesale_price"],
             eeg_price=forecasts["eeg_price"],
             community_price=forecasts["community_price"],
@@ -159,7 +161,14 @@ def init(world: World, n=1):
         forecaster=NaiveForecast(
             index=index,
             availability=1,  # always available
-            demand=0,  # no battery demand
+            energy_demand=forecasts["demand"],
+            solar_generation=forecasts["solar_generation_forecast"],
+            wholesale_price=forecasts["wholesale_price"],
+            eeg_price=forecasts["eeg_price"],
+            community_price=forecasts["community_price"],
+            grid_price=forecasts["grid_price"],
+            # no battery demand, fuel price or CO2 price for this simulation
+            battery_demand=0,  # no battery demand
             fuel_price=0,  # no fuel price
             co2_price=0,  # no CO2 price
         ),
@@ -168,6 +177,7 @@ def init(world: World, n=1):
 
 if __name__ == "__main__":
     db_uri = "postgresql://assume:assume@localhost:5432/assume"
-    world = World(database_uri=db_uri)
+    world = World(database_uri=db_uri, log_level="DEBUG")
     init(world)
+    logging.getLogger("gurobipy").setLevel(logging.WARNING)  # suppress gurobipy logs
     world.run()
