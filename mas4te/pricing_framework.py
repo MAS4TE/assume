@@ -29,7 +29,7 @@ class Storage:
         self.efficiency = efficiency
 
 
-class Optimizer:
+class PricingFramework:
     def __init__(
         self,
         storage: Storage,

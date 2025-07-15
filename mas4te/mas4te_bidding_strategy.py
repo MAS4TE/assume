@@ -4,7 +4,7 @@
 
 import pandas as pd
 import requests
-from pricing_framework import Optimizer, Storage
+from pricing_framework import PricingFramework, Storage
 
 from assume.common.base import BaseStrategy, SupportsMinMaxCharge
 from assume.common.market_objects import MarketConfig, Orderbook, Product
@@ -86,7 +86,7 @@ class LLMStrategy(BaseStrategy):
             storages_to_calculate = self.build_storages_to_calculate()
 
         # get baseline optimization, to know how much prosumer has to pay with current setup
-        optimizer = Optimizer(
+        pricer = PricingFramework(
             storage=Storage(
                 id=0, c_rate=1, volume=self.baseline_storage, efficiency=0.95
             ),
@@ -95,8 +95,8 @@ class LLMStrategy(BaseStrategy):
             demand=demand_timeseries,
             storage_use_cases=["eeg", "wholesale", "community", "home"],
         )
-        optimizer.optimize(solver="gurobi")
-        baseline_cost = optimizer.model.objective()
+        pricer.optimize(solver="gurobi")
+        baseline_cost = pricer.model.objective()
 
         # dictionary to hold the worth of each storage in
         # with volume as key and worth as value
@@ -104,7 +104,7 @@ class LLMStrategy(BaseStrategy):
 
         for storage in storages_to_calculate:
             # create the optimizer
-            optimizer = Optimizer(
+            pricer = PricingFramework(
                 storage=storage,
                 prices=prices,
                 solar_generation=solar_generation,
@@ -113,7 +113,7 @@ class LLMStrategy(BaseStrategy):
             )
 
             # run the optimization
-            optimizer.optimize(solver="gurobi")
+            pricer.optimize(solver="gurobi")
 
             # minimum cost in this scenario is the objective of the optimization model
             # we're optimizing energy dispatch to potential storage to minimize costs, thus
@@ -121,7 +121,7 @@ class LLMStrategy(BaseStrategy):
             # associated with the storage volume
             # to get the worth of the storage, we need to compare the costs with the baseline costs, e. g.
             # the costs of the current setup without storage (buyer side) or with a specific storage volume (seller side)
-            minimum_cost = optimizer.model.objective()
+            minimum_cost = pricer.model.objective()
 
             # worth of the storage is the difference between the baseline cost and the minimum cost
             value = minimum_cost - baseline_cost
