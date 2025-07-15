@@ -171,6 +171,7 @@ class LLMBuyStrategy(LLMStrategy):
             # for given storages to calculate the wort (value) for
             # if the LLM should provide some storages that should be calculated, it can be passed here
             # otherwise change the default storages in the build_storages_to_calculate method
+            # this function is just a wrapper for the pricing framework
             volumes_values = self.calculate_storage_values(
                 unit=unit, product=product, storages_to_calculate=None
             )
@@ -190,7 +191,31 @@ class LLMBuyStrategy(LLMStrategy):
         #               LLM CALL GOES HERE                  #
         #   TO CHOOSE FROM RECOMMENDATIONS OR ALTER THEM    #
         #####################################################
+        llm_price_recommendation = 10
+        llm_volume_recommendation = -1
+        min_power_charge = 0.5
+        min_power_discharge = 0.5
 
+        bids = []
+        for product in product_tuples:
+            bids.append(
+                {
+                    "start_time": product[0],
+                    "end_time": product[1],
+                    "only_hours": product[2],
+                    "price": llm_price_recommendation,
+                    "volume": llm_volume_recommendation,
+                    "kw_charge": min_power_charge,
+                    "kw_discharge": min_power_discharge
+                }
+            )
+            bids.append(
+                {
+                    
+                }
+            )
+
+        return bids
 
 
 class LLMSellStrategy(LLMStrategy):
@@ -223,6 +248,7 @@ class LLMSellStrategy(LLMStrategy):
             # for given storages to calculate the wort (value) for
             # if the LLM should provide some storages that should be calculated, it can be passed here
             # otherwise change the default storages in the build_storages_to_calculate method
+            # this function is just a wrapper for the pricing framework
             volumes_values = self.calculate_storage_values(
                 unit=unit, product=product, storages_to_calculate=None
             )
@@ -242,3 +268,22 @@ class LLMSellStrategy(LLMStrategy):
         #               LLM CALL GOES HERE                  #
         #   TO CHOOSE FROM RECOMMENDATIONS OR ALTER THEM    #
         #####################################################
+        llm_price_recommendation = 1
+        llm_volume_recommendation = 1
+
+        bids = []
+        for product in product_tuples:
+            bids.append(
+                {
+                    "start_time": product[0],
+                    "end_time": product[1],
+                    "only_hours": product[2],
+                    "price": llm_price_recommendation,
+                    "volume": llm_volume_recommendation,
+                    "kw_charge": unit.max_power_charge,
+                    "kw_discharge": unit.max_power_discharge
+                }
+            )
+
+        return bids
+
