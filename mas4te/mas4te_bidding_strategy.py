@@ -32,7 +32,7 @@ class LLMStrategy(BaseStrategy):
         """
         # Example: Create storages with volumes from 0 to 1000 in steps of 100
         storages = [
-            Storage(id=i, volume=i, c_rate=1, efficiency=0.95) for i in range(1, 11)
+            Storage(id=i, volume=i, c_rate=1, efficiency=0.95) for i in range(1, 15)
         ]
 
         storages += [
@@ -85,6 +85,10 @@ class LLMStrategy(BaseStrategy):
         if not storages_to_calculate:
             storages_to_calculate = self.build_storages_to_calculate()
 
+        # dictionary to hold the worth of each storage in
+        # with volume as key and worth as value
+        storages_values = {}
+
         # get baseline optimization, to know how much prosumer has to pay with current setup
         pricer = PricingFramework(
             storage=Storage(
@@ -98,11 +102,10 @@ class LLMStrategy(BaseStrategy):
         pricer.optimize(solver="gurobi")
         baseline_cost = pricer.model.objective()
 
-        # dictionary to hold the worth of each storage in
-        # with volume as key and worth as value
-        storages_values = {}
+        storages_values[self.baseline_storage] = baseline_cost
 
         for storage in storages_to_calculate:
+
             # create the optimizer
             pricer = PricingFramework(
                 storage=storage,
@@ -179,7 +182,7 @@ class LLMBuyStrategy(LLMStrategy):
         print("#####################################################")
         print("Volumes and their values for buyer:")
         for volume, value in volumes_values.items():
-            print(f"Volume: {volume}, Value: {value}")
+            print(f"Volume to buy: {volume}, Marginal worth (max. to pay): {value}")
         print("#####################################################")
         print(
             "This input is only here to pause the simulation and allow you to see the recommendations"
@@ -193,8 +196,6 @@ class LLMBuyStrategy(LLMStrategy):
         #####################################################
         llm_price_recommendation = 10
         llm_volume_recommendation = -1
-        min_power_charge = 0.5
-        min_power_discharge = 0.5
 
         bids = []
         for product in product_tuples:
@@ -205,13 +206,6 @@ class LLMBuyStrategy(LLMStrategy):
                     "only_hours": product[2],
                     "price": llm_price_recommendation,
                     "volume": llm_volume_recommendation,
-                    "kw_charge": min_power_charge,
-                    "kw_discharge": min_power_discharge
-                }
-            )
-            bids.append(
-                {
-                    
                 }
             )
 
@@ -256,7 +250,9 @@ class LLMSellStrategy(LLMStrategy):
         print("#####################################################")
         print("Volumes and their values for seller:")
         for volume, value in volumes_values.items():
-            print(f"Volume: {volume}, Value: {value}")
+            if volume > self.baseline_storage:
+                continue
+            print(f"Volume selling: {self.baseline_storage - volume}, Marginal worth (min. to receive): {-value}")
         print("#####################################################")
         print(
             "This input is only here to pause the simulation and allow you to see the recommendations"
@@ -280,8 +276,6 @@ class LLMSellStrategy(LLMStrategy):
                     "only_hours": product[2],
                     "price": llm_price_recommendation,
                     "volume": llm_volume_recommendation,
-                    "kw_charge": unit.max_power_charge,
-                    "kw_discharge": unit.max_power_discharge
                 }
             )
 

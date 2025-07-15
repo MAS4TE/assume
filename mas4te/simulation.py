@@ -51,7 +51,7 @@ def read_forecasts(start, end):
 def init(world: World, n=1):
     # set start and end date
     start = datetime(2023, 1, 1, hour=13)
-    end = datetime(2023, 1, 8)
+    end = datetime(2023, 1, 8, hour=13)
 
     # create index
     index = FastIndex(start, end, freq="h")
@@ -98,7 +98,7 @@ def init(world: World, n=1):
                     first_delivery=timedelta(hours=12),
                 )
             ],  # delivery will take place 12 hours after market close
-            additional_fields=["kw_charge, kw_discharge"],
+            additional_fields=["c_rate", "efficiency"]
         )
     ]
 
@@ -177,7 +177,7 @@ def init(world: World, n=1):
 
 if __name__ == "__main__":
     db_uri = "postgresql://assume:assume@localhost:5432/assume"
-    world = World(database_uri=db_uri, log_level="DEBUG")
+    world = World(database_uri=db_uri, log_level="ERROR")
     init(world)
     logging.getLogger("gurobipy").setLevel(logging.WARNING)  # suppress gurobipy logs
     world.run()
