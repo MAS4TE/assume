@@ -99,7 +99,7 @@ class LLMStrategy(BaseStrategy):
             demand=demand_timeseries,
             storage_use_cases=["eeg", "wholesale", "community", "home"],
         )
-        pricer.optimize(solver="gurobi")
+        pricer.optimize(solver="glpk")
         baseline_cost = pricer.model.objective()
 
         storages_values[self.baseline_storage] = baseline_cost
@@ -116,7 +116,7 @@ class LLMStrategy(BaseStrategy):
             )
 
             # run the optimization
-            pricer.optimize(solver="gurobi")
+            pricer.optimize(solver="glpk")
 
             # minimum cost in this scenario is the objective of the optimization model
             # we're optimizing energy dispatch to potential storage to minimize costs, thus

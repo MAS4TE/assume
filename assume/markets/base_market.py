@@ -479,6 +479,16 @@ class MarketRole(MarketMechanism, Role):
         )
         logger.debug("Sent registration reply to agent '%s': %s", agent_addr, msg)
 
+    def handle_schedule(self, content: Schedule, meta: MetaDict):
+        # TODO store schedule
+        self.battery_schedules = []
+        self.battery_schedules.append(content)
+
+    async def send_schedule_to_battery(self):
+
+        for schedule in self.battery_schedules:
+            self.context.send_message(...)
+
     def handle_orderbook(self, content: OrderBookMessage, meta: MetaDict):
         """
         Handles incoming order book messages, validates the order book, and adds valid orders to the list of all orders.

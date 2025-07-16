@@ -342,6 +342,13 @@ class UnitsOperator(Role):
                 orderbook=orderbook,
             )
 
+    def create_battery_schedule(self, schedule):
+        # send battery schedule to market from our existing bids
+        pass
+
+    async def accept_battery_schedule(self, data):
+        pass
+
     def get_actual_dispatch(
         self, product_type: str, last: datetime
     ) -> tuple[list[tuple[datetime, float, str, str]], list[dict]]:
