@@ -252,7 +252,7 @@ class LLMSellStrategy(LLMStrategy):
         for volume, value in volumes_values.items():
             if volume > self.baseline_storage:
                 continue
-            print(f"Volume selling: {self.baseline_storage - volume}, Marginal worth (min. to receive): {-value}")
+            print(f"Volume to sell: {self.baseline_storage - volume}, Marginal worth (min. to receive): {-value}")
         print("#####################################################")
         print(
             "This input is only here to pause the simulation and allow you to see the recommendations"
