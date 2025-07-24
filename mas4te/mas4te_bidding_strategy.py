@@ -9,6 +9,9 @@ from pricing_framework import PricingFramework, Storage
 from assume.common.base import BaseStrategy, SupportsMinMaxCharge
 from assume.common.market_objects import MarketConfig, Orderbook, Product
 
+import re
+import ast
+import json
 
 class LLMStrategy(BaseStrategy):
     """
@@ -18,7 +21,7 @@ class LLMStrategy(BaseStrategy):
         llm_api_url (str): The URL of the LLM API to use for generating bids.
     """
 
-    def __init__(self, llm_api_url=None, baseline_storage=0, *args, **kwargs):
+    def __init__(self, llm_api_url="http://localhost:1234/v1/completions", baseline_storage=0, *args, **kwargs):
         super().__init__()
         self.baseline_storage = baseline_storage
         self.api_url = llm_api_url
@@ -99,7 +102,7 @@ class LLMStrategy(BaseStrategy):
             demand=demand_timeseries,
             storage_use_cases=["eeg", "wholesale", "community", "home"],
         )
-        pricer.optimize(solver="gurobi")
+        pricer.optimize(solver="appsi_highs")
         baseline_cost = pricer.model.objective()
 
         storages_values[self.baseline_storage] = baseline_cost
@@ -116,7 +119,7 @@ class LLMStrategy(BaseStrategy):
             )
 
             # run the optimization
-            pricer.optimize(solver="gurobi")
+            pricer.optimize(solver="appsi_highs")
 
             # minimum cost in this scenario is the objective of the optimization model
             # we're optimizing energy dispatch to potential storage to minimize costs, thus
@@ -134,21 +137,116 @@ class LLMStrategy(BaseStrategy):
 
         return storages_values
 
-    def run_prompt(
-        self, prompt: str, model="Mistral-7B-Instruct-v0.3-Q4_K_M", max_tokens=1000
-    ):
+    def run_sell_prompt(self, prompt: str, optimization_framework: str, model="Mistral-7B-Instruct-v0.3-Q4_K_M", max_tokens=4000):
+        print(optimization_framework)
+        prompt = (
+        f"You are an energy trading agent.\n"
+        f"You receive an optimization framework output for your predicted situation: {optimization_framework}. \n" 
+        f"You have to decide a volume and a corresponding price to sell. \n"
+        f"The optimization framework is computed based on your baseline prediction with your storage. \n"
+        f"Return your decision as a JSON object with the following keys:\n"
+        f'- "volume": an integer\n'
+        f'- "price": a float\n'
+        f'- "reasoning": a short string explanation\n'
+        f"Do not include any other text outside of the json. No explanations, no headers.\n"
+        )
+
         data = {"model": model, "prompt": prompt, "max_tokens": max_tokens}
         response = requests.post(self.api_url, headers=self.headers, json=data)
         response.raise_for_status()
+        print(response)
         result = response.json()
-        return result.get("choices", [{}])[0].get("text", "")
+        print(result.get("choices", [{}])[0].get("text", ""))
+        print('after response')
+        vol, pr, r = self.parse_llm_json_output(result.get("choices", [{}])[0].get("text", ""))
+        return vol, pr, r
+        # return result.get("choices", [{}])[0].get("text", "")
+
+    def run_buy_prompt(self, prompt: str, model="Mistral-7B-Instruct-v0.3-Q4_K_M", max_tokens=4000):
+        prompt = (
+        "You are an energy trading agent.\n"
+        "Based on the market, a good price is €10 per volume. \n" 
+        "You have a volume of 4 to buy. \n"
+        "Return your trading decision in the format:\n"
+        "('volume','price', 'reasoning')\n"
+        "Do not include any other text. No explanations, no headers, just the triple.\n"
+        )
+
+        data = {"model": model, "prompt": prompt, "max_tokens": max_tokens}
+        response = requests.post(self.api_url, headers=self.headers, json=data)
+        response.raise_for_status()
+        print(response)
+        result = response.json()
+        print(result.get("choices", [{}])[0].get("text", ""))
+        print('after response')
+        vol, pr, r = self.check_output_format(result.get("choices", [{}])[0].get("text", ""))
+        return vol, pr, r
+        # return result.get("choices", [{}])[0].get("text", "")
+
+
+    def parse_llm_json_output(self, text):
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        if match:
+            try:
+                data = json.loads(match.group(0))
+                volume = int(data.get("volume", 0))
+                price = float(data.get("price", 0))
+                reasoning = str(data.get("reasoning", ""))
+                return volume, price, reasoning
+            except Exception as e:
+                pass
+        return 0, 0, "invalid"
+
+    
+    def check_output_format(self, text):
+        text = text.strip()
+        print(text)
+        # Extract first match of anything inside a pair of parentheses
+        try:
+            # Extract the first valid-looking tuple using regex
+            match = re.search(r'\(.*?\)', text, re.DOTALL)
+            if not match:
+                print('all zeros')
+                return 0, 0, 0
+
+            tuple_str = match.group(0)
+            parsed = ast.literal_eval(tuple_str)
+
+            if isinstance(parsed, tuple) and len(parsed) == 3:
+                return parsed[0], parsed[1], parsed[2]
+        except Exception as e:
+            print(f'Parsing error: {e}')
+
+        print('all zeros')
+        return 0, 0, 0
+
+
+    # def reformat_output_format(self, raw_text):
+    #     # First try to parse raw_text directly
+    #     vol, pr, r = self.check_output_format(raw_text)
+    #     if (vol, pr, r) != (0, 0, 0):
+    #         return vol, pr, r
+
+    #     # If invalid, call LLM once to reformat
+    #     model = "Mistral-7B-Instruct-v0.3-Q4_K_M"
+    #     prompt = f"Reformat the following text into the format (volume, price, reasoning):\n\n{raw_text}"
+    #     data = {"model": model, "prompt": prompt, "max_tokens": 1000}
+    #     response = requests.post(self.api_url, headers=self.headers, json=data)
+    #     result = response.json()
+    #     llm_output = result.get("choices", [{}])[0].get("text", "").strip()
+
+    #     # Check the LLM output
+    #     return self.check_output_format(llm_output)
 
 
 class LLMBuyStrategy(LLMStrategy):
     """A strategy that uses a Large Language Model (LLM) for a storage buyer."""
 
-    def __init__(self, llm_api_url=None, baseline_storage=0, *args, **kwargs):
-        super().__init__(llm_api_url, baseline_storage, *args, **kwargs)
+    def __init__(self, llm_api_url="http://localhost:1234/v1/completions", baseline_storage=0, *args, **kwargs):
+        super().__init__()
+        self.baseline_storage = baseline_storage
+        self.api_url = llm_api_url
+        self.headers = {"Content-Type": "application/json"}
 
     def calculate_bids(
         self,
@@ -190,12 +288,16 @@ class LLMBuyStrategy(LLMStrategy):
         print("Input something to continue...")
         input()
 
+
         #####################################################
         #               LLM CALL GOES HERE                  #
         #   TO CHOOSE FROM RECOMMENDATIONS OR ALTER THEM    #
         #####################################################
         llm_price_recommendation = 10
         llm_volume_recommendation = -1
+
+        llm_price_recommendation, llm_volume_recommendation, reasoning_output = self.run_buy_prompt('')
+        print(llm_price_recommendation, llm_volume_recommendation)
 
         bids = []
         for product in product_tuples:
@@ -215,8 +317,11 @@ class LLMBuyStrategy(LLMStrategy):
 class LLMSellStrategy(LLMStrategy):
     """A strategy that uses a Large Language Model (LLM) for a storage seller."""
 
-    def __init__(self, llm_api_url=None, baseline_storage=0, *args, **kwargs):
-        super().__init__(llm_api_url, baseline_storage, *args, **kwargs)
+    def __init__(self, llm_api_url="http://localhost:1234/v1/completions", baseline_storage=0, *args, **kwargs):
+        super().__init__()
+        self.baseline_storage = baseline_storage
+        self.api_url = llm_api_url
+        self.headers = {"Content-Type": "application/json"}
 
     def calculate_bids(
         self,
@@ -257,8 +362,10 @@ class LLMSellStrategy(LLMStrategy):
         print(
             "This input is only here to pause the simulation and allow you to see the recommendations"
         )
-        print("Input something to continue...")
+        print("Input something to continue... [ Sell ]")
         input()
+
+
 
         #####################################################
         #               LLM CALL GOES HERE                  #
@@ -266,6 +373,11 @@ class LLMSellStrategy(LLMStrategy):
         #####################################################
         llm_price_recommendation = 1
         llm_volume_recommendation = 1
+
+        optimization_seller_data, optimization_sell_text = self.get_seller_volumes_with_text(volumes_values)
+
+        llm_price_recommendation, llm_volume_recommendation, reasoning_output = self.run_sell_prompt('', optimization_sell_text)
+        print('before bid ', llm_price_recommendation, llm_volume_recommendation)
 
         bids = []
         for product in product_tuples:
@@ -280,4 +392,19 @@ class LLMSellStrategy(LLMStrategy):
             )
 
         return bids
+
+    def get_seller_volumes_with_text(self, volumes_values):
+        result = []
+        lines = ["Volumes and their values for seller:"]
+        
+        for volume, value in volumes_values.items():
+            if volume > self.baseline_storage:
+                continue
+            sell_volume = self.baseline_storage - volume
+            marginal_worth = -value
+            result.append((sell_volume, marginal_worth))
+            lines.append(f"Volume selling: {sell_volume}, Marginal worth (min. to receive): {marginal_worth}")
+        
+        text_output = "\n".join(lines)
+        return result, text_output
 

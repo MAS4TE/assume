@@ -115,69 +115,81 @@ def init(world: World, n=1):
     # so we have to read them in before providing them to the forecaster of the unit
     forecasts = read_forecasts(start, end)
 
-    # actually create and add the demand unit
-    world.add_unit_operator(id="storage_demand_operator")
-    world.add_unit(
-        id="storage_demand_01",
-        unit_type="demand",
-        unit_operator_id="storage_demand_operator",
-        unit_params={
-            "baseline_storage": 0,  # unit has no storage
-            "max_power": 1000,  # max 1.000 kW demand
-            "min_power": 0,  # no minimum demand
-            "bidding_strategies": {"BatteryMarket": "llm_buy_strategy"},
-            "bidding_params": {"baseline_storage": 0},  # baseline to compare with
-            "technology": "demand",
-        },
-        forecaster=NaiveForecast(
-            index=index,
-            demand=0,
-            energy_demand=forecasts["demand"],
-            wholesale_price=forecasts["wholesale_price"],
-            eeg_price=forecasts["eeg_price"],
-            community_price=forecasts["community_price"],
-            grid_price=forecasts["grid_price"],
-            solar_generation_forecast=forecasts["solar_generation_forecast"],
-        ),
-    )
+    ##################################################
+    # SET THE NUMBER OF DEMAND AND SUPPLY UNITS HERE #
+    ##################################################
+    n_demand_units = 1
+    n_supply_units = 1
 
-    # create and add provider (sell) unit
-    world.add_unit_operator("storage_provider_operator")
-    world.add_unit(
-        id="storage_provider_01",
-        unit_type="storage",
-        unit_operator_id="storage_provider_operator",
-        unit_params={
-            "max_power_charge": 1,  # max 1 kW charge
-            "max_power_discharge": 1,  # max 1 kW discharge
-            "max_soc": 20,  # max 20 kWh of storage capacity (equal to baseline)
-            "min_soc": 0,  # no mimimum fill level
-            "efficiency_charge": 0.975,  # charge and discharge to combine to 95% efficiency
-            "efficiency_discharge": 0.975,
-            "bidding_strategies": {"BatteryMarket": "llm_sell_strategy"},
-            "bidding_params": {"baseline_storage": 20},  # baseline to compare with, should be equal to max_soc
-            "technology": "battery_storage",
-        },
-        forecaster=NaiveForecast(
-            index=index,
-            availability=1,  # always available
-            energy_demand=forecasts["demand"],
-            solar_generation=forecasts["solar_generation_forecast"],
-            wholesale_price=forecasts["wholesale_price"],
-            eeg_price=forecasts["eeg_price"],
-            community_price=forecasts["community_price"],
-            grid_price=forecasts["grid_price"],
-            # no battery demand, fuel price or CO2 price for this simulation
-            battery_demand=0,  # no battery demand
-            fuel_price=0,  # no fuel price
-            co2_price=0,  # no CO2 price
-        ),
-    )
+
+    # actually create and add the demand units
+    for i in range(n_demand_units):
+        id = "0" + str(i + 1) if i < 9 else str(i + 1)
+        world.add_unit_operator(id=f"storage_demand_operator_{id}")
+        world.add_unit(
+            id=f"storage_demand_{id}",
+            unit_type="demand",
+            unit_operator_id=f"storage_demand_operator_{id}",
+            unit_params={
+                "baseline_storage": 0,  # unit has no storage
+                "max_power": 1000,  # max 1.000 kW demand
+                "min_power": 0,  # no minimum demand
+                "bidding_strategies": {"BatteryMarket": "llm_buy_strategy"},
+                "bidding_params": {"baseline_storage": 0},  # baseline to compare with
+                "technology": "demand",
+            },
+            forecaster=NaiveForecast(
+                index=index,
+                demand=0,
+                energy_demand=forecasts["demand"],
+                wholesale_price=forecasts["wholesale_price"],
+                eeg_price=forecasts["eeg_price"],
+                community_price=forecasts["community_price"],
+                grid_price=forecasts["grid_price"],
+                solar_generation_forecast=forecasts["solar_generation_forecast"],
+            ),
+        )
+
+    # actually create and add the supply units
+    for i in range(n_supply_units):
+        id = "0" + str(i + 1) if i < 9 else str(i + 1)
+        world.add_unit_operator(f"storage_provider_operator_{id}")
+        world.add_unit(
+            id=f"storage_provider_{id}",
+            unit_type="storage",
+            unit_operator_id=f"storage_provider_operator_{id}",
+            unit_params={
+                "max_power_charge": 1,  # max 1 kW charge
+                "max_power_discharge": 1,  # max 1 kW discharge
+                "max_soc": 20,  # max 20 kWh of storage capacity (equal to baseline)
+                "min_soc": 0,  # no mimimum fill level
+                "efficiency_charge": 0.975,  # charge and discharge to combine to 95% efficiency
+                "efficiency_discharge": 0.975,
+                "bidding_strategies": {"BatteryMarket": "llm_sell_strategy"},
+                "bidding_params": {"baseline_storage": 20},  # baseline to compare with, should be equal to max_soc
+                "technology": "battery_storage",
+            },
+            forecaster=NaiveForecast(
+                index=index,
+                availability=1,  # always available
+                energy_demand=forecasts["demand"],
+                solar_generation=forecasts["solar_generation_forecast"],
+                wholesale_price=forecasts["wholesale_price"],
+                eeg_price=forecasts["eeg_price"],
+                community_price=forecasts["community_price"],
+                grid_price=forecasts["grid_price"],
+                # no battery demand, fuel price or CO2 price for this simulation
+                battery_demand=0,  # no battery demand
+                fuel_price=0,  # no fuel price
+                co2_price=0,  # no CO2 price
+            ),
+        )
 
 
 if __name__ == "__main__":
-    db_uri = "postgresql://assume:assume@localhost:5432/assume"
+    # db_uri = "postgresql://assume:assume@localhost:5432/assume"
+    db_uri = "sqlite:///assume_db"
     world = World(database_uri=db_uri, log_level="ERROR")
     init(world)
-    logging.getLogger("gurobipy").setLevel(logging.WARNING)  # suppress gurobipy logs
+    logging.getLogger("highs").setLevel(logging.WARNING)  # suppress gurobipy logs
     world.run()
