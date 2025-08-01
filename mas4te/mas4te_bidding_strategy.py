@@ -8,6 +8,7 @@ from pricing_framework import PricingFramework, Storage
 
 from assume.common.base import BaseStrategy, SupportsMinMaxCharge
 from assume.common.market_objects import MarketConfig, Orderbook, Product
+from assume.common.utils import get_supported_solver
 
 
 class LLMStrategy(BaseStrategy):
@@ -99,7 +100,7 @@ class LLMStrategy(BaseStrategy):
             demand=demand_timeseries,
             storage_use_cases=["eeg", "wholesale", "community", "home"],
         )
-        pricer.optimize(solver="gurobi")
+        pricer.optimize(solver=get_supported_solver("gurobi"))
         baseline_cost = pricer.model.objective()
 
         storages_values[self.baseline_storage] = baseline_cost
@@ -116,7 +117,7 @@ class LLMStrategy(BaseStrategy):
             )
 
             # run the optimization
-            pricer.optimize(solver="gurobi")
+            pricer.optimize(solver=get_supported_solver("gurobi"))
 
             # minimum cost in this scenario is the objective of the optimization model
             # we're optimizing energy dispatch to potential storage to minimize costs, thus
