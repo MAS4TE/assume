@@ -98,7 +98,9 @@ def init(world: World, n=1):
                     first_delivery=timedelta(hours=12),
                 )
             ],  # delivery will take place 12 hours after market close
-            additional_fields=["c_rate", "efficiency"]
+            additional_fields=["c_rate"],
+            param_dict={"allowed_c_rates": [1]},
+            minimum_bid_price=0,
         )
     ]
 

@@ -10,7 +10,7 @@ from operator import itemgetter
 
 import pyomo.environ as pyo
 
-from assume.common.market_objects import MarketConfig, MarketProduct, Orderbook
+from assume.common.market_objects import MarketConfig, MarketProduct, Orderbook, Order
 from assume.markets.base_market import MarketRole
 
 logger = logging.getLogger(__name__)
@@ -52,115 +52,112 @@ class BatteryClearing(MarketRole):
     def validate_orderbook(
         self, orderbook: Orderbook, agent_addr
     ) -> None:
-        c_rates = self.marketconfig.param_dict["allowed_c_rates"]
+        allowed_c_rates = self.marketconfig.param_dict["allowed_c_rates"]
         for order in orderbook:
-            if order["c_rate"] not in c_rates:
-                raise ValueError(f"{order['c_rate']} is not in {c_rates}")
+            if order["c_rate"] not in allowed_c_rates:
+                raise ValueError(f"{order['c_rate']} is not in {allowed_c_rates}")
 
         super().validate_orderbook(orderbook, agent_addr)
 
-    def set_model_restrictions(self) -> None:
+    def set_model_restrictions(self, model: pyo.ConcreteModel) -> None:
         """Sets the model restrictions."""
 
-        def restrict_product_balance(model, storage_type):
-            total_ask = sum(
-                ask.product.components.get(storage_type, 0)
-                * self.model.ask_volume[ask.uuid, ask.product.id]
-                for ask in self.asks
-            )
-            total_bid = sum(
-                bid.product.components.get(storage_type, 0)
-                * self.model.bid_volume[bid.uuid, bid.product.id]
-                for bid in self.bids
-            )
-
-            return total_ask >= total_bid
-
-        self.model.restrict_product_balance = pyo.Constraint(
-            self.storage_types, rule=restrict_product_balance
+        # Restrict the supply volume to be less than or equal to the demand volume
+        model.restrict_product_balance = pyo.Constraint(
+            sum(model.supply_volume[i] for i in model.supply_volume) <= \
+            sum(model.demand_volume[i] for i in model.demand_volume)
         )
 
-    def set_model_objective(self) -> None:
+        model.restrict_prices = pyo.Constraint(
+            model.supply_price[i] for i in model.supply_prices
+        )
+
+    def set_model_objective(self, model: pyo.ConcreteModel) -> None:
         """Sets the model objective function."""
 
-        supply_costs = sum(
-            self.model.ask_volume[ask.uuid, ask.product.id]
-            * (ask.price + 1e-3 * random())
-            for ask in self.asks
-        )
-        demand_costs = sum(
-            self.model.bid_volume[bid.uuid, bid.product.id] * bid.price
-            for bid in self.bids
+        supply_costs = sum(model.supply_price[bid_id] * model.supply_volume[bid_id] for bid_id in model.supply_prices)
+        demand_costs = sum(model.demand_price[bid_id] * model.demand_volume[bid_id] for bid_id in model.demand_prices)
+
+        model.objective = pyo.Objective(
+            expr=demand_costs - supply_costs, sense=pyo.maximize
         )
 
-        bez_menge = 1e-3 * (
-            sum(self.model.bid_volume[bid.uuid, bid.product.id] for bid in self.bids)
-            + sum(self.model.ask_volume[ask.uuid, ask.product.id] for ask in self.asks)
-        )
+    def add_supply_vars(self, model: pyo.ConcreteModel, supply_orders: list[Order]) -> None:
+        """Creates supply price & volume variable."""
 
-        self.model.objective = pyo.Objective(
-            expr=demand_costs - supply_costs + bez_menge, sense=pyo.maximize
-        )
-
-    def add_bids(self) -> None:
-        """Creates bid volume variable for each bidder and product."""
-
-        # create indexed var
-        self.model.bid_volume = pyo.Var(
-            [bid.uuid for bid in self.bids],
-            self.bid_products,
+        model.supply_volume = pyo.Var(
+            [supply_order["bid_id"] for supply_order in supply_orders],
             domain=pyo.NonNegativeReals,
         )
+        for supply_order in supply_orders:
+            max_volume = abs(supply_order["volume"])
+            model.supply_volume[supply_order["bid_id"]].setub(max_volume)
 
-        # set upper bound
-        for bid in self.bids:
-            self.model.bid_volume[bid.uuid, bid.product.id].setub(bid.volume)
-
-    def add_asks(self) -> None:
-        """Creates ask volume variable for each asker and product."""
-
-        # create indexed var
-        self.model.ask_volume = pyo.Var(
-            [ask.uuid for ask in self.asks],
-            self.asked_products,
+        model.supply_price = pyo.Var(
+            [supply_order["bid_id"] for supply_order in supply_orders],
             domain=pyo.NonNegativeReals,
         )
+        for supply_order in supply_orders:
+            max_price = supply_order["price"]
+            model.supply_price[supply_order["bid_id"]].setub(max_price)
 
-        # set upper bound
-        for ask in self.asks:
-            self.model.ask_volume[ask.uuid, ask.product.id].setub(ask.volume)
+    def add_demand_vars(self, model: pyo.ConcreteModel, demand_orders: list[Order]) -> None:
+        """Creates demand price & volume variable."""
 
-    def gather_bidders(self) -> list[str]:
-        """Gather all bidders in the market.
+        model.demand_volume = pyo.Var(
+            [demand_order["bid_id"] for demand_order in demand_orders],
+            domain=pyo.NonNegativeReals,
+        )
+        for demand_order in demand_orders:
+            max_volume = abs(demand_order["volume"])
+            self.model.demand_volume[demand_order["bid_id"]].setub(max_volume)
 
-        Returns:
-            list[Bid]: List of bidders
-        """
-        return list(set([bid.participant_id for bid in self.bids]))
+        model.demand_price = pyo.Var(
+            [demand_order["bid_id"] for demand_order in demand_orders],
+            domain=pyo.NonNegativeReals,
+        )
+        for demand_order in demand_orders:
+            max_price = demand_order["price"]
+            model.demand_price[demand_order["bid_id"]].setub(max_price)
 
-    def gather_askers(self):
-        """Gather all askers in the market.
+    def solve_model(self, model: pyo.ConcreteModel, solver: str = "highs") -> None:
+        """Solves the model using the specified solver."""
 
-        Returns:
-            list[Ask]: List of askers
-        """
-        return list(set([ask.participant_id for ask in self.asks]))
+        solver = pyo.SolverFactory(solver)
+        results = solver.solve(model, tee=False)
 
-    def gather_storage_types(self) -> list:
-        """Gather all storage types in the market.
+        if results.solver.termination_condition != pyo.TerminationCondition.optimal:
+            raise ValueError("Model could not be solved optimally.")
 
-        Returns:
-            list: List of storage types
-        """
+        # Log the results
+        logger.info("Model solved successfully.")
+        logger.debug(f"Objective value: {pyo.value(model.objective)}")
 
-        all_storage_types = []
-        for product in self.tradeable_products:
-            product_storage_types = list(product.components.keys())
-            all_storage_types.extend(product_storage_types)
+    def get_accepted_rejected_orders(
+        self, model: pyo.ConcreteModel, supply_orders: list[Order], demand_orders: list[Order]
+    ) -> tuple[list[Order], list[Order]]:
 
-        all_storage_types = list(set(all_storage_types))
+        accepted_orders = []
+        rejected_orders = []
+        for supply_order in supply_orders:
+            volume = model.supply_volume[supply_order["bid_id"]].value
+            supply_order["accepted_volume"] = volume
 
-        return all_storage_types
+            if volume > 0:
+                accepted_orders.append(supply_order)
+            else:
+                rejected_orders.append(supply_order)
+
+        for demand_order in demand_orders:
+            volume = model.demand_volume[demand_order["bid_id"]].value
+            demand_order["accepted_volume"] = volume
+
+            if volume > 0:
+                accepted_orders.append(demand_order)
+            else:
+                rejected_orders.append(demand_order)
+
+        return accepted_orders, rejected_orders
 
     def calculate_clearing_price(self) -> float:
         """Calculates the clearing price as the highest price of awarded asks or bids.
@@ -191,50 +188,34 @@ class BatteryClearing(MarketRole):
         # Return the highest awarded price
         return max(all_awarded_prices)
 
-    def get_accepted_asks(self, clearing_price: float) -> list[AcceptedAsk]:
-        """Retrieves accepted asks.
+    def clear(
+            self, orderbook: Orderbook, market_products
+    ) -> tuple[Orderbook, Orderbook, list[dict]]:
 
-        Returns:
-            list[AcceptedAsk]: The accepted asks.
-        """
+        # get demand and supply orders from orderbook
+        demand_orders = [x for x in orderbook if x["volume"] < 0]
+        supply_orders = [x for x in orderbook if x["volume"] > 0]
 
-        accepted_asks = []
-        for ask in self.asks:
-            traded_volume = value(self.model.ask_volume[ask.uuid, ask.product.id])
+        # create pyomo model for solving
+        model = pyo.ConcreteModel()
 
-            if traded_volume > 0:
-                accepted_ask = AcceptedAsk.from_ask(
-                    ask=ask,
-                    accepted_volume=traded_volume,
-                    accepted_price=clearing_price,
-                )
+        # add supply and demand variables to the model
+        self.add_supply_vars(model, supply_orders)
+        self.add_demand_vars(model, demand_orders)
 
-                accepted_asks.append(accepted_ask)
+        # add restrictions to the model
+        self.set_model_restrictions(model)
 
-        return accepted_asks
+        # set the model objective
+        self.set_model_objective(model)
 
-    def get_accepted_bids(self, clearing_price: float) -> list[AcceptedBid]:
-        """Retrieves accepted bids.
+        # run optimization (clearing)
+        self.solve_model(model, solver="highs")
 
-        Returns:
-            list[AcceptedBid]: The accepted bids.
-        """
-
-        accepted_bids = []
-        for bid in self.bids:
-            traded_volume = value(self.model.bid_volume[bid.uuid, bid.product.id])
-
-            if traded_volume > 0:
-                accepted_bid = AcceptedBid.from_bid(
-                    bid=bid,
-                    accepted_volume=traded_volume,
-                    accepted_price=clearing_price,
-                )
-
-                accepted_bids.append(accepted_bid)
-
-        return accepted_bids
-
+        # get accepted orders
+        accepted_orders, rejected_orders = self.get_accepted_rejected_orders(
+            model, supply_orders, demand_orders
+        )
 
     def clear(
         self, orderbook: Orderbook, market_products
