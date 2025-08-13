@@ -5,7 +5,7 @@
 import logging
 from datetime import datetime, timedelta
 
-# from mas4te_clearing_mechanism import BatteryClearing
+from mas4te_clearing_mechanism import BatteryClearing
 import pandas as pd
 from dateutil import rrule as rr
 from mas4te_bidding_strategy import LLMBuyStrategy, LLMSellStrategy
@@ -64,8 +64,7 @@ def init(world: World, n=1):
     world.bidding_strategies["llm_sell_strategy"] = LLMSellStrategy
 
     # add possible clearing mechanism
-    # TODO implement BatteryClearing
-    # world.clearing_mechanisms["battery_clearing"] = BatteryClearing
+    world.clearing_mechanisms["battery_clearing"] = BatteryClearing
 
     # set up world
     world.setup(
@@ -87,7 +86,7 @@ def init(world: World, n=1):
                 cache=True,  # weekly battery market with the next week tradeable
             ),
             opening_duration=timedelta(hours=1),
-            market_mechanism="pay_as_clear",
+            market_mechanism="battery_clearing",
             product_type="power",
             market_products=[
                 MarketProduct(
