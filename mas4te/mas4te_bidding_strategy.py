@@ -207,6 +207,7 @@ class LLMBuyStrategy(LLMStrategy):
                     "only_hours": product[2],
                     "price": llm_price_recommendation,
                     "volume": llm_volume_recommendation,
+                    "c_rate": 1
                 }
             )
 
@@ -277,6 +278,7 @@ class LLMSellStrategy(LLMStrategy):
                     "only_hours": product[2],
                     "price": llm_price_recommendation,
                     "volume": llm_volume_recommendation,
+                    "c_rate": 1
                 }
             )
 
