@@ -149,7 +149,7 @@ class BatteryClearing(MarketRole):
 
         for demand_order in demand_orders:
             volume = model.demand_volume[demand_order["bid_id"]].value
-            demand_order["accepted_volume"] = volume
+            demand_order["accepted_volume"] = -volume
 
             if volume > 0:
                 accepted_orders.append(demand_order)
@@ -233,7 +233,36 @@ class BatteryClearing(MarketRole):
             print(f"{add}{order['volume']=}, {order['price']=}")
 
         print("###############################")
+        accepted_demand_orders = [x for x in accepted_orders if x["accepted_volume"] < 0]
+        accepted_supply_orders = [x for x in accepted_orders if x["accepted_volume"] > 0]
+
+        # use uniform pricing
+        if accepted_orders:
+            clear_price = float(
+                max(map(itemgetter("price"), accepted_supply_orders))
+            )
+        else:
+            clear_price = 0
+
+
+        for order in accepted_orders:
+            order["accepted_price"] = clear_price
+
+        # set accepted volume to 0 and price to clear price for rejected orders
+        for order in rejected_orders:
+            order["accepted_volume"] = 0
+            order["accepted_price"] = clear_price
 
         # model.pprint()
+        meta = []
 
-        return accepted_orders, rejected_orders, [], []
+        meta.append(
+                calculate_meta(
+                    accepted_supply_orders,
+                    accepted_demand_orders,
+                    market_products[0],
+                )
+            )
+        flows = []
+
+        return accepted_orders, rejected_orders, meta, flows

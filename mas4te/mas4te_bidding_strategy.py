@@ -6,7 +6,7 @@ import pandas as pd
 import requests
 from pricing_framework import PricingFramework, Storage
 
-from assume.common.base import BaseStrategy, SupportsMinMaxCharge
+from assume.common.base import BaseStrategy, BaseUnit, SupportsMinMaxCharge
 from assume.common.market_objects import MarketConfig, Orderbook, Product
 from assume.common.utils import get_supported_solver
 
@@ -144,7 +144,6 @@ class LLMStrategy(BaseStrategy):
         result = response.json()
         return result.get("choices", [{}])[0].get("text", "")
 
-
 class LLMBuyStrategy(LLMStrategy):
     """A strategy that uses a Large Language Model (LLM) for a storage buyer."""
 
@@ -212,6 +211,26 @@ class LLMBuyStrategy(LLMStrategy):
             )
 
         return bids
+
+
+    def calculate_reward(
+        self,
+        unit: BaseUnit,
+        marketconfig: MarketConfig,
+        orderbook: Orderbook,
+    ):
+        """
+        Calculates the reward for the given unit.
+
+        Args:
+            unit (BaseUnit): The unit.
+            marketconfig (MarketConfig): The market configuration.
+            orderbook (Orderbook): The orderbook.
+        """
+        # here we can learn something from our previous biddings
+        # TODO Bea
+        self.prompts = ...
+        self.accepted_orders = orderbook
 
 
 class LLMSellStrategy(LLMStrategy):
