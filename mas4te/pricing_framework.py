@@ -335,12 +335,12 @@ class PricingFramework:
             )
 
         if "home" in self.storage_use_cases:
-
             def restrict_soc_home(model, timestep):
                 if timestep == self.timesteps[0]:
                     return (
                         model.storage_level[timestep, "home"]
                         == model.supplier_to_storage[timestep]
+                        + model.pv_to_storage[timestep, "home"]
                         - model.storage_to_home[timestep]
                     )
                 else:
@@ -349,6 +349,7 @@ class PricingFramework:
                         model.storage_level[timestep, "home"]
                         == model.storage_level[previous_timestep, "home"]
                         + model.supplier_to_storage[timestep]
+                        + model.pv_to_storage[timestep, "home"]
                         - model.storage_to_home[timestep]
                     )
 
