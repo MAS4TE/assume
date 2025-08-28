@@ -127,20 +127,21 @@ def init(world: World, n=1):
     for market_config in marketdesign:
         world.add_market(mo_id, market_config)
 
-    # create and add demand (buy) unit
-    # we need a demand, solar generation and price forecast to build bids
-    # so we have to read them in before providing them to the forecaster of the unit
-    forecasts = read_forecasts(start, end)
-
     ##################################################
     # SET THE NUMBER OF DEMAND AND SUPPLY UNITS HERE #
     ##################################################
     n_demand_units = 1
     n_supply_units = 1
 
-
     # actually create and add the demand units
     for i in range(n_demand_units):
+        # we need a demand, solar generation and price forecast to build bids
+        # so we have to read them in before providing them to the forecaster of the unit
+        # -----------------------------------------------------------------------------------
+        # you can provide an ID (0 to 29) here and the forecast for that ID will be read in
+        # or you can set "randomize" to True, to choose a random forecast
+        forecasts = read_forecasts(start, end, id=str(i), randomize=False)
+
         id = "0" + str(i + 1) if i < 9 else str(i + 1)
         world.add_unit_operator(id=f"storage_demand_operator_{id}")
         world.add_unit(
@@ -163,12 +164,16 @@ def init(world: World, n=1):
                 eeg_price=forecasts["eeg_price"],
                 community_price=forecasts["community_price"],
                 grid_price=forecasts["grid_price"],
-                solar_generation_forecast=forecasts["solar_generation_forecast"],
+                solar_gen=forecasts["solar_gen"],
             ),
         )
 
     # actually create and add the supply units
     for i in range(n_supply_units):
+
+        # same as above - set an ID or set randomize to True
+        forecasts = read_forecasts(start, end, id=str(i))
+
         id = "0" + str(i + 1) if i < 9 else str(i + 1)
         world.add_unit_operator(f"storage_provider_operator_{id}")
         world.add_unit(
@@ -188,9 +193,10 @@ def init(world: World, n=1):
             },
             forecaster=NaiveForecast(
                 index=index,
+                demand=0,
                 availability=1,  # always available
                 energy_demand=forecasts["demand"],
-                solar_generation=forecasts["solar_generation_forecast"],
+                solar_gen=forecasts["solar_gen"],
                 wholesale_price=forecasts["wholesale_price"],
                 eeg_price=forecasts["eeg_price"],
                 community_price=forecasts["community_price"],
