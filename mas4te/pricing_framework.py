@@ -224,7 +224,7 @@ class PricingFramework:
                 + model.wholesale_to_storage[timestep]
                 + model.community_to_storage[timestep]
                 + model.supplier_to_storage[timestep]
-                <= self.storage.c_rate
+                <= self.storage.c_rate * self.storage.volume
             )
 
         self.model.storage_charge_restriction = pyo.Constraint(
@@ -238,7 +238,7 @@ class PricingFramework:
                 + model.storage_to_wholesale[timestep]
                 + model.storage_to_community[timestep]
                 + model.storage_to_home[timestep]
-                <= self.storage.c_rate
+                <= self.storage.c_rate * self.storage.volume
             )
 
         self.model.storage_discharge_restriction = pyo.Constraint(
@@ -272,7 +272,6 @@ class PricingFramework:
         )
 
         if "eeg" in self.storage_use_cases:
-
             def restrict_soc_eeg(model, timestep):
                 if timestep == self.timesteps[0]:
                     return (
@@ -294,7 +293,6 @@ class PricingFramework:
             )
 
         if "wholesale" in self.storage_use_cases:
-
             def restrict_soc_wholesale(model, timestep):
                 if timestep == self.timesteps[0]:
                     return (
@@ -316,7 +314,6 @@ class PricingFramework:
             )
 
         if "community" in self.storage_use_cases:
-
             def restrict_soc_community(model, timestep):
                 if timestep == self.timesteps[0]:
                     return (
