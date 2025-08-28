@@ -135,7 +135,7 @@ class PricingFramework:
 
         # selling from storage on wholesale
         self.model.storage_to_wholesale = pyo.Var(
-            self.timesteps, domain=pyo.NonNegativeReals
+            self.timesteps, domain=pyo.NonNegativeReals, bounds=(0, 0)
         )
 
         # selling from storage on community
@@ -152,7 +152,7 @@ class PricingFramework:
 
         # charging storage from wholesale market
         self.model.wholesale_to_storage = pyo.Var(
-            self.timesteps, domain=pyo.NonNegativeReals, bounds=(0, 0)
+            self.timesteps, domain=pyo.NonNegativeReals
         )
 
         # charging storage from community market
