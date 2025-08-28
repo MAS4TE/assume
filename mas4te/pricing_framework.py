@@ -56,7 +56,7 @@ class PricingFramework:
 
         self.start = self.prices.index[0]
         self.end = self.prices.index[-1]
-        self.timesteps = list(range(self.start, self.end))
+        self.timesteps = list(range(self.start, self.end + 1))
 
         self.prices = prices
         self.solar_generation = solar_generation
