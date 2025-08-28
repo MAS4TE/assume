@@ -4,6 +4,7 @@
 
 import logging
 from datetime import datetime, timedelta
+import random
 
 from mas4te_clearing_mechanism import BatteryClearing
 import pandas as pd
@@ -18,10 +19,25 @@ from assume.common.market_objects import MarketConfig, MarketProduct
 log = logging.getLogger(__name__)
 
 
-def read_forecasts(start, end):
+def read_forecasts(start, end, id: int = 0, randomize: bool = False):
+    """Reads the forecasts for a specific time period and unit ID.
+
+    Args:
+        start (datetime): The start time of the forecast period.
+        end (datetime): The end time of the forecast period.
+        id (int, optional): The ID of the unit to read forecasts for. Defaults to 0.
+        randomize (bool, optional): Whether to randomize the forecasts. Defaults to False. Overwrites the ID.
+
+    Returns:
+        dict: A dictionary containing the forecasts for the specified time period and unit ID.
+    """
+    if randomize:
+        val = random.randint(0, 29)
+        id = "0" + str(val) if val < 10 else str(val)
+
     demand_forecast = pd.read_csv(
         "./example_data/demand.csv", index_col=0, parse_dates=True
-    )["demand"][start:end]
+    )["demand" + "_" + id][start:end]
     wholesale_price = pd.read_csv(
         "./example_data/prices.csv", index_col=0, parse_dates=True
     )["wholesale"][start:end]
@@ -34,9 +50,9 @@ def read_forecasts(start, end):
     grid_price = pd.read_csv(
         "./example_data/prices.csv", index_col=0, parse_dates=True
     )["grid"][start:end]
-    solar_generation_forecast = pd.read_csv(
+    solar_gen = pd.read_csv(
         "./example_data/solar.csv", index_col=0, parse_dates=True
-    )["solar"][start:end]
+    )["solar" + "_" + id][start:end]
 
     return {
         "demand": demand_forecast,
@@ -44,7 +60,7 @@ def read_forecasts(start, end):
         "eeg_price": eeg_price,
         "community_price": community_price,
         "grid_price": grid_price,
-        "solar_generation_forecast": solar_generation_forecast,
+        "solar_gen": solar_gen,
     }
 
 
