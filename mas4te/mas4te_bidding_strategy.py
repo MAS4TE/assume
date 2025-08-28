@@ -60,8 +60,8 @@ class LLMStrategy(BaseStrategy):
         """
 
         # start of by reading in / generating the data for demand and costs
-        demand_timeseries = unit.forecaster["demand"]  # build_demand_timeseries(unit)
-        solar_generation = unit.forecaster["solar_generation"]
+        demand_timeseries = unit.forecaster["energy_demand"]
+        solar_gen = unit.forecaster["solar_gen"]
 
         # prices are forecasted in series but need to be in DataFrame format for the optimizer
         wholesale_prices = unit.forecaster[
@@ -96,7 +96,7 @@ class LLMStrategy(BaseStrategy):
                 id=0, c_rate=1, volume=self.baseline_storage, efficiency=0.95
             ),
             prices=prices,
-            solar_generation=solar_generation,
+            solar_generation=solar_gen,
             demand=demand_timeseries,
             storage_use_cases=["eeg", "wholesale", "community", "home"],
         )
@@ -111,7 +111,7 @@ class LLMStrategy(BaseStrategy):
             pricer = PricingFramework(
                 storage=storage,
                 prices=prices,
-                solar_generation=solar_generation,
+                solar_generation=solar_gen,
                 demand=demand_timeseries,
                 storage_use_cases=["eeg", "wholesale", "community", "home"],
             )
