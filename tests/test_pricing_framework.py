@@ -1,5 +1,6 @@
 from mas4te.pricing_framework import PricingFramework, Storage
 from assume.common.utils import get_supported_solver
+import pandas as pd
 
 
 def test_pricing_framework_baseline():
