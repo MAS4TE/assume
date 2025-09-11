@@ -173,7 +173,8 @@ def init(world: World, n=1):
 
         # same as above - set an ID or set randomize to True
         forecasts = read_forecasts(start, end, unit_type="supply", id=str(i), randomize=False)
-        baseline_storage = random.randrange(2, 50)
+        # baseline_storage = random.randrange(2, 50)
+        baseline_storage = 2 + i * 4
 
         id = "0" + str(i + 1) if i < 9 else str(i + 1)
         world.add_unit_operator(f"storage_supply_operator_{id}")
@@ -209,6 +210,8 @@ def init(world: World, n=1):
                 co2_price=0,  # no CO2 price
             ),
         )
+
+    print("init world")
 
 
 if __name__ == "__main__":

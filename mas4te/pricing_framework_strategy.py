@@ -6,7 +6,7 @@ import random
 from datetime import datetime
 
 import pandas as pd
-import requests
+import numpy as np
 from pricing_framework import PricingFramework, Storage
 
 from assume.common.base import BaseStrategy, BaseUnit, SupportsMinMaxCharge
@@ -16,23 +16,31 @@ from assume.common.utils import get_supported_solver
 
 class PricingFrameworkStrategy(BaseStrategy):
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, baseline_storage: float, *args, **kwargs):
         super().__init__()
+        self.baseline_storage = baseline_storage
 
-    def build_storages_to_calculate(self):
+    def build_storages_to_calculate(self, volumes: list[float] | None = None):
         """Builds a list of storage volumes to calculate worth for.
 
         Returns:
             list[Storage]: List of Storage objects with different volumes.
         """
-        # Example: Create storages with volumes from 0 to 1000 in steps of 100
-        storages = [
-            Storage(id=i, volume=i, c_rate=1, efficiency=0.95) for i in range(1, 15)
-        ]
+        if volumes:
+            storages = []
+            for i, vol in enumerate(volumes):
+                storage = Storage(id=i, volume=vol, c_rate=1, efficiency=0.95)
+                storages.append(storage)
 
-        storages += [
-            Storage(id=i, volume=i * 5, c_rate=1, efficiency=0.95) for i in range(3, 11)
-        ]
+        else:
+            # Example: Create storages with volumes from 0 to 1000 in steps of 100
+            storages = [
+                Storage(id=i, volume=i, c_rate=1, efficiency=0.95) for i in range(1, 15)
+            ]
+
+            storages += [
+                Storage(id=i, volume=i * 5, c_rate=1, efficiency=0.95) for i in range(3, 11)
+            ]
 
         return storages
 
@@ -40,7 +48,7 @@ class PricingFrameworkStrategy(BaseStrategy):
         self,
         unit: SupportsMinMaxCharge,
         product: Product,
-        storages_to_calculate: list[Storage],
+        storages_to_calculate: list[float],
         baseline_storage,
     ) -> dict[float, float]:
         """Calculates price recommendations for specific storage volumes depending on forecasted price, energy demand and solar generation for a specific unit.
@@ -82,8 +90,7 @@ class PricingFrameworkStrategy(BaseStrategy):
 
         # build storages to optimize for
         # change storages that should be calculated here!
-        if not storages_to_calculate:
-            storages_to_calculate = self.build_storages_to_calculate()
+        storages_to_calculate = self.build_storages_to_calculate(volumes=storages_to_calculate)
 
         # dictionary to hold the worth of each storage in
         # with volume as key and worth as value
@@ -99,10 +106,10 @@ class PricingFrameworkStrategy(BaseStrategy):
             demand=demand_timeseries,
             storage_use_cases=["eeg", "wholesale", "community", "home"],
         )
-        pricer.optimize(solver=get_supported_solver("gurobi"))
+        pricer.optimize(solver="gurobi")
         baseline_cost = pricer.model.objective()
 
-        storages_values[baseline_storage] = baseline_cost
+        # storages_values[baseline_storage] = baseline_cost
 
         for storage in storages_to_calculate:
 
@@ -130,18 +137,9 @@ class PricingFrameworkStrategy(BaseStrategy):
             value = minimum_cost - baseline_cost
 
             # add to storage_value dictionary
-            storages_values[storage.volume] = value
+            storages_values[storage.volume] = value / storage.volume
 
         return storages_values
-
-    def run_prompt(
-        self, prompt: str, model="Mistral-7B-Instruct-v0.3-Q4_K_M", max_tokens=1000
-    ):
-        data = {"model": model, "prompt": prompt, "max_tokens": max_tokens}
-        response = requests.post(self.api_url, headers=self.headers, json=data)
-        response.raise_for_status()
-        result = response.json()
-        return result.get("choices", [{}])[0].get("text", "")
 
 class BuyStrategy(PricingFrameworkStrategy):
     """A strategy that uses a Large Language Model (LLM) for a storage buyer."""
@@ -167,7 +165,7 @@ class BuyStrategy(PricingFrameworkStrategy):
             Orderbook: The calculated order book with bids.
         """
 
-        # print(dir(unit))
+        storages_to_calculate = [0.5, 1, 1.5, 2, 3, 4, 5]
 
         # iterate over each product (which is only one in phase 1)
         for product in product_tuples:
@@ -177,25 +175,37 @@ class BuyStrategy(PricingFrameworkStrategy):
             # otherwise change the default storages in the build_storages_to_calculate method
             # this function is just a wrapper for the pricing framework
             volumes_values = self.calculate_storage_values(
-                unit=unit, product=product, storages_to_calculate=None, baseline_storage=0,
+                unit=unit, product=product, storages_to_calculate=storages_to_calculate, baseline_storage=0,
             )
 
-        choosen_volume = random.choice(list(volumes_values.keys()))
-        resulting_price = float(volumes_values[choosen_volume] / choosen_volume)
+        diffs = []
+        previous_vol=0
+        existing_money = 0
 
-        bids = []
+        for vol, val in volumes_values.items():
+            delta_vol = vol - previous_vol
+
+            worth_of_storage = vol*val
+            # calculate price in €/kWh for additional volume
+            # include lost cost, as previous volume was sold to cheap
+            new_price = (worth_of_storage - existing_money) / delta_vol
+            diffs.append({"volume": delta_vol, "price": new_price})
+            previous_vol += delta_vol
+            existing_money += delta_vol*val
+
         for product in product_tuples:
-            bids.append(
-                {
-                    "start_time": product[0],
-                    "end_time": product[1],
-                    "only_hours": product[2],
-                    "price": resulting_price,
-                    "volume": -choosen_volume,
-                    "c_rate": 1
-                }
-            )
-
+            bids = []
+            for diff in diffs:
+                bids.append(
+                    {
+                        "start_time": product[0],
+                        "end_time": product[1],
+                        "only_hours": product[2],
+                        "volume": -diff["volume"],
+                        "price": diff["price"],
+                        "c_rate": 1
+                    }
+                )
         return bids
 
 
@@ -243,6 +253,9 @@ class SellStrategy(PricingFrameworkStrategy):
             Orderbook: The calculated order book with bids.
         """
 
+        volumes = [self.baseline_storage - x for x in [0.5, 1, 1.5, 2, 3, 4, 5]]
+        storages_to_calculate = sorted([x for x in volumes if x > 0])
+
         # iterate over each product (which is only one in phase 1)
         for product in product_tuples:
             # get price recommendations for the product
@@ -251,23 +264,36 @@ class SellStrategy(PricingFrameworkStrategy):
             # otherwise change the default storages in the build_storages_to_calculate method
             # this function is just a wrapper for the pricing framework
             volumes_values = self.calculate_storage_values(
-                unit=unit, product=product, storages_to_calculate=None, baseline_storage=random.randrange(2, 50)
+                unit=unit, product=product, storages_to_calculate=storages_to_calculate, baseline_storage=self.baseline_storage
             )
 
-        choosen_volume = random.choice(list(volumes_values.keys()))
-        resulting_price = float(volumes_values[choosen_volume] / choosen_volume)
+        diffs = []
+        previous_vol=0
+        existing_money = 0
 
-        bids = []
+        for vol, val in volumes_values.items():
+            delta_vol = vol - previous_vol
+
+            worth_of_storage = vol * val
+            # calculate price in €/kWh for additional volume
+            # include lost cost, as previous volume was sold to cheap
+            new_price = (worth_of_storage - existing_money) / delta_vol
+            diffs.append({"volume": delta_vol, "price": new_price})
+            previous_vol += delta_vol
+            existing_money += delta_vol*val
+
         for product in product_tuples:
-            bids.append(
-                {
-                    "start_time": product[0],
-                    "end_time": product[1],
-                    "only_hours": product[2],
-                    "price": resulting_price,
-                    "volume": choosen_volume,
-                    "c_rate": 1
-                }
-            )
+            bids = []
+            for diff in diffs:
+                bids.append(
+                    {
+                        "start_time": product[0],
+                        "end_time": product[1],
+                        "only_hours": product[2],
+                        "volume": diff["volume"],
+                        "price": abs(diff["price"]),
+                        "c_rate": 1
+                    }
+                )
         return bids
 
