@@ -178,7 +178,7 @@ def init(world: World, n=1):
         world.add_unit_operator(f"storage_provider_operator_{id}")
         world.add_unit(
             id=f"storage_provider_{id}",
-            unit_type="storage",
+            unit_type="MAS4TEUnit",
             unit_operator_id=f"storage_provider_operator_{id}",
             unit_params={
                 "max_power_charge": 1,  # max 1 kW charge
