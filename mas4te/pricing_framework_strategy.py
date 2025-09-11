@@ -2,6 +2,9 @@
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
+import random
+from datetime import datetime
+
 import pandas as pd
 import requests
 from pricing_framework import PricingFramework, Storage
@@ -11,19 +14,10 @@ from assume.common.market_objects import MarketConfig, Orderbook, Product
 from assume.common.utils import get_supported_solver
 
 
-class LLMStrategy(BaseStrategy):
-    """
-    A strategy that uses a Large Language Model (LLM) for a storage buyer.
+class PricingFrameworkStrategy(BaseStrategy):
 
-    Params:
-        llm_api_url (str): The URL of the LLM API to use for generating bids.
-    """
-
-    def __init__(self, llm_api_url=None, baseline_storage=0, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__()
-        self.baseline_storage = baseline_storage
-        self.api_url = llm_api_url
-        self.headers = {"Content-Type": "application/json"}
 
     def build_storages_to_calculate(self):
         """Builds a list of storage volumes to calculate worth for.
@@ -47,6 +41,7 @@ class LLMStrategy(BaseStrategy):
         unit: SupportsMinMaxCharge,
         product: Product,
         storages_to_calculate: list[Storage],
+        baseline_storage,
     ) -> dict[float, float]:
         """Calculates price recommendations for specific storage volumes depending on forecasted price, energy demand and solar generation for a specific unit.
 
@@ -59,19 +54,23 @@ class LLMStrategy(BaseStrategy):
         dict: monetary worth (marginal costs) of the storage volume to the unit operator with volume as key and worth as value.
         """
 
+        start_time = datetime(2023, 1, 1, hour=13)
+        end_time = datetime(2023, 1, 8, hour=13)
+
         # start of by reading in / generating the data for demand and costs
-        demand_timeseries = unit.forecaster["energy_demand"]
-        solar_gen = unit.forecaster["solar_gen"]
+        demand_timeseries = unit.forecaster["energy_demand"]#.loc[start_time:end_time, :]
+        solar_gen = unit.forecaster["solar_gen"]#.loc[start_time:end_time, :]
 
         # prices are forecasted in series but need to be in DataFrame format for the optimizer
         wholesale_prices = unit.forecaster[
             "wholesale_price"
-        ]  # build_wholesale_prices(unit)
-        eeg_prices = unit.forecaster["eeg_price"]  # build_eeg
+        ]#.loc[start_time:end_time]  # build_wholesale_prices(unit)
+        eeg_prices = unit.forecaster["eeg_price"]#.loc[start_time:end_time, :]  # build_eeg
         community_prices = unit.forecaster[
             "community_price"
-        ]  # build_community_prices(unit)
-        grid_prices = unit.forecaster["grid_price"]  # build_grid_prices(unit)
+        ]#.loc[start_time:end_time]  # build_community_prices(unit)
+        grid_prices = unit.forecaster["grid_price"]#.loc[start_time:end_time, :]  # build_grid_prices(unit)
+
         prices = pd.DataFrame(
             data={
                 "wholesale": wholesale_prices,
@@ -93,7 +92,7 @@ class LLMStrategy(BaseStrategy):
         # get baseline optimization, to know how much prosumer has to pay with current setup
         pricer = PricingFramework(
             storage=Storage(
-                id=0, c_rate=1, volume=self.baseline_storage, efficiency=0.95
+                id=0, c_rate=1, volume=baseline_storage, efficiency=0.95
             ),
             prices=prices,
             solar_generation=solar_gen,
@@ -103,7 +102,7 @@ class LLMStrategy(BaseStrategy):
         pricer.optimize(solver=get_supported_solver("gurobi"))
         baseline_cost = pricer.model.objective()
 
-        storages_values[self.baseline_storage] = baseline_cost
+        storages_values[baseline_storage] = baseline_cost
 
         for storage in storages_to_calculate:
 
@@ -144,11 +143,11 @@ class LLMStrategy(BaseStrategy):
         result = response.json()
         return result.get("choices", [{}])[0].get("text", "")
 
-class LLMBuyStrategy(LLMStrategy):
+class BuyStrategy(PricingFrameworkStrategy):
     """A strategy that uses a Large Language Model (LLM) for a storage buyer."""
 
-    def __init__(self, llm_api_url=None, baseline_storage=0, *args, **kwargs):
-        super().__init__(llm_api_url, baseline_storage, *args, **kwargs)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def calculate_bids(
         self,
@@ -168,6 +167,8 @@ class LLMBuyStrategy(LLMStrategy):
             Orderbook: The calculated order book with bids.
         """
 
+        # print(dir(unit))
+
         # iterate over each product (which is only one in phase 1)
         for product in product_tuples:
             # get price recommendations for the product
@@ -176,26 +177,11 @@ class LLMBuyStrategy(LLMStrategy):
             # otherwise change the default storages in the build_storages_to_calculate method
             # this function is just a wrapper for the pricing framework
             volumes_values = self.calculate_storage_values(
-                unit=unit, product=product, storages_to_calculate=None
+                unit=unit, product=product, storages_to_calculate=None, baseline_storage=0,
             )
 
-        print("#####################################################")
-        print("Volumes and their values for buyer:")
-        for volume, value in volumes_values.items():
-            print(f"Volume to buy: {volume}, Marginal worth (max. to pay): {value}")
-        print("#####################################################")
-        print(
-            "This input is only here to pause the simulation and allow you to see the recommendations"
-        )
-        print("Input something to continue...")
-        input()
-
-        #####################################################
-        #               LLM CALL GOES HERE                  #
-        #   TO CHOOSE FROM RECOMMENDATIONS OR ALTER THEM    #
-        #####################################################
-        llm_price_recommendation = 10
-        llm_volume_recommendation = -1
+        choosen_volume = random.choice(list(volumes_values.keys()))
+        resulting_price = float(volumes_values[choosen_volume] / choosen_volume)
 
         bids = []
         for product in product_tuples:
@@ -204,8 +190,8 @@ class LLMBuyStrategy(LLMStrategy):
                     "start_time": product[0],
                     "end_time": product[1],
                     "only_hours": product[2],
-                    "price": llm_price_recommendation,
-                    "volume": llm_volume_recommendation,
+                    "price": resulting_price,
+                    "volume": -choosen_volume,
                     "c_rate": 1
                 }
             )
@@ -233,11 +219,11 @@ class LLMBuyStrategy(LLMStrategy):
         self.accepted_orders = orderbook
 
 
-class LLMSellStrategy(LLMStrategy):
+class SellStrategy(PricingFrameworkStrategy):
     """A strategy that uses a Large Language Model (LLM) for a storage seller."""
 
-    def __init__(self, llm_api_url=None, baseline_storage=0, *args, **kwargs):
-        super().__init__(llm_api_url, baseline_storage, *args, **kwargs)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def calculate_bids(
         self,
@@ -265,28 +251,11 @@ class LLMSellStrategy(LLMStrategy):
             # otherwise change the default storages in the build_storages_to_calculate method
             # this function is just a wrapper for the pricing framework
             volumes_values = self.calculate_storage_values(
-                unit=unit, product=product, storages_to_calculate=None
+                unit=unit, product=product, storages_to_calculate=None, baseline_storage=random.randrange(2, 50)
             )
 
-        print("#####################################################")
-        print("Volumes and their values for seller:")
-        for volume, value in volumes_values.items():
-            if volume > self.baseline_storage:
-                continue
-            print(f"Volume to sell: {self.baseline_storage - volume}, Marginal worth (min. to receive): {-value}")
-        print("#####################################################")
-        print(
-            "This input is only here to pause the simulation and allow you to see the recommendations"
-        )
-        print("Input something to continue...")
-        input()
-
-        #####################################################
-        #               LLM CALL GOES HERE                  #
-        #   TO CHOOSE FROM RECOMMENDATIONS OR ALTER THEM    #
-        #####################################################
-        llm_price_recommendation = 1
-        llm_volume_recommendation = 1
+        choosen_volume = random.choice(list(volumes_values.keys()))
+        resulting_price = float(volumes_values[choosen_volume] / choosen_volume)
 
         bids = []
         for product in product_tuples:
@@ -295,11 +264,10 @@ class LLMSellStrategy(LLMStrategy):
                     "start_time": product[0],
                     "end_time": product[1],
                     "only_hours": product[2],
-                    "price": llm_price_recommendation,
-                    "volume": llm_volume_recommendation,
+                    "price": resulting_price,
+                    "volume": choosen_volume,
                     "c_rate": 1
                 }
             )
-
         return bids
 

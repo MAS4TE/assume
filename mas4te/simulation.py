@@ -9,7 +9,7 @@ import random
 from mas4te_clearing_mechanism import BatteryClearing
 import pandas as pd
 from dateutil import rrule as rr
-from mas4te_bidding_strategy import LLMBuyStrategy, LLMSellStrategy
+from mas4te.pricing_framework_strategy import BuyStrategy, SellStrategy
 
 from assume import World
 from assume.common.fast_pandas import FastIndex
@@ -19,7 +19,7 @@ from assume.common.market_objects import MarketConfig, MarketProduct
 log = logging.getLogger(__name__)
 
 
-def read_forecasts(start, end, id: int = 0, randomize: bool = False):
+def read_forecasts(start, end, unit_type: str, id: int = 0, randomize: bool = False):
     """Reads the forecasts for a specific time period and unit ID.
 
     Args:
@@ -36,22 +36,22 @@ def read_forecasts(start, end, id: int = 0, randomize: bool = False):
         id = "0" + str(val) if val < 10 else str(val)
 
     demand_forecast = pd.read_csv(
-        "./example_data/demand.csv", index_col=0, parse_dates=True
+        f"./data/{unit_type}_units_energy_demand.csv", index_col=0, parse_dates=True
     )["demand" + "_" + id][start:end]
     wholesale_price = pd.read_csv(
-        "./example_data/prices.csv", index_col=0, parse_dates=True
+        "./data/prices.csv", index_col=0, parse_dates=True
     )["wholesale"][start:end]
-    eeg_price = pd.read_csv("./example_data/prices.csv", index_col=0, parse_dates=True)[
+    eeg_price = pd.read_csv("./data/prices.csv", index_col=0, parse_dates=True)[
         "eeg"
     ][start:end]
     community_price = pd.read_csv(
-        "./example_data/prices.csv", index_col=0, parse_dates=True
+        "./data/prices.csv", index_col=0, parse_dates=True
     )["community"][start:end]
     grid_price = pd.read_csv(
-        "./example_data/prices.csv", index_col=0, parse_dates=True
+        "./data/prices.csv", index_col=0, parse_dates=True
     )["grid"][start:end]
     solar_gen = pd.read_csv(
-        "./example_data/solar.csv", index_col=0, parse_dates=True
+        f"./data/{unit_type}_units_solar_generation.csv", index_col=0, parse_dates=True
     )["solar" + "_" + id][start:end]
 
     return {
@@ -73,11 +73,11 @@ def init(world: World, n=1):
     index = FastIndex(start, end, freq="h")
 
     # set simulation ID
-    simulation_id = "mas4te_simulation"
+    simulation_id = "pf_01"
 
     # add possible bidding strategies
-    world.bidding_strategies["llm_buy_strategy"] = LLMBuyStrategy
-    world.bidding_strategies["llm_sell_strategy"] = LLMSellStrategy
+    world.bidding_strategies["buy_strategy"] = BuyStrategy
+    world.bidding_strategies["sell_strategy"] = SellStrategy
 
     # add possible clearing mechanism
     world.clearing_mechanisms["battery_clearing"] = BatteryClearing
@@ -130,8 +130,8 @@ def init(world: World, n=1):
     ##################################################
     # SET THE NUMBER OF DEMAND AND SUPPLY UNITS HERE #
     ##################################################
-    n_demand_units = 1
-    n_supply_units = 1
+    n_demand_units = 5
+    n_supply_units = 5
 
     # actually create and add the demand units
     for i in range(n_demand_units):
@@ -140,7 +140,7 @@ def init(world: World, n=1):
         # -----------------------------------------------------------------------------------
         # you can provide an ID (0 to 29) here and the forecast for that ID will be read in
         # or you can set "randomize" to True, to choose a random forecast
-        forecasts = read_forecasts(start, end, id=str(i), randomize=False)
+        forecasts = read_forecasts(start, end, unit_type="demand", id=str(i), randomize=False)
 
         id = "0" + str(i + 1) if i < 9 else str(i + 1)
         world.add_unit_operator(id=f"storage_demand_operator_{id}")
@@ -152,7 +152,7 @@ def init(world: World, n=1):
                 "baseline_storage": 0,  # unit has no storage
                 "max_power": 1000,  # max 1.000 kW demand
                 "min_power": 0,  # no minimum demand
-                "bidding_strategies": {"BatteryMarket": "llm_buy_strategy"},
+                "bidding_strategies": {"BatteryMarket": "buy_strategy"},
                 "bidding_params": {"baseline_storage": 0},  # baseline to compare with
                 "technology": "demand",
             },
@@ -172,23 +172,25 @@ def init(world: World, n=1):
     for i in range(n_supply_units):
 
         # same as above - set an ID or set randomize to True
-        forecasts = read_forecasts(start, end, id=str(i))
+        forecasts = read_forecasts(start, end, unit_type="supply", id=str(i), randomize=False)
+        baseline_storage = random.randrange(2, 50)
 
         id = "0" + str(i + 1) if i < 9 else str(i + 1)
-        world.add_unit_operator(f"storage_provider_operator_{id}")
+        world.add_unit_operator(f"storage_supply_operator_{id}")
         world.add_unit(
-            id=f"storage_provider_{id}",
+            id=f"storage_supply_{id}",
             unit_type="storage",
-            unit_operator_id=f"storage_provider_operator_{id}",
+            unit_operator_id=f"storage_supply_operator_{id}",
             unit_params={
+                "baseline_storage": baseline_storage,
                 "max_power_charge": 1,  # max 1 kW charge
                 "max_power_discharge": 1,  # max 1 kW discharge
-                "max_soc": 20,  # max 20 kWh of storage capacity (equal to baseline)
+                "max_soc": baseline_storage,  # max 20 kWh of storage capacity (equal to baseline)
                 "min_soc": 0,  # no mimimum fill level
                 "efficiency_charge": 0.975,  # charge and discharge to combine to 95% efficiency
                 "efficiency_discharge": 0.975,
-                "bidding_strategies": {"BatteryMarket": "llm_sell_strategy"},
-                "bidding_params": {"baseline_storage": 20},  # baseline to compare with, should be equal to max_soc
+                "bidding_strategies": {"BatteryMarket": "sell_strategy"},
+                "bidding_params": {"baseline_storage": baseline_storage},  # baseline to compare with, should be equal to max_soc
                 "technology": "battery_storage",
             },
             forecaster=NaiveForecast(

@@ -223,14 +223,14 @@ class BatteryClearing(MarketRole):
                 add = "buy "
             else:
                 add = "sell "
-            print(f"{add}{order['accepted_volume']=}, {order['price']=}")
+            print(f"{add}{-order['accepted_volume']=} kWh, {order['price']=:.2f} €, total: {-order['accepted_volume'] * order['price']}")
         print("Rejected orders:")
         for order in rejected_orders:
             if order["volume"] < 0:
                 add = "buy "
             else:
                 add = "sell "
-            print(f"{add}{order['volume']=}, {order['price']=}")
+            print(f"{add}{order['volume']=} kWh, {order['price']=:.2f} €, total: {order['volume'] * order['price']}")
 
         print("###############################")
         accepted_demand_orders = [x for x in accepted_orders if x["accepted_volume"] < 0]
@@ -243,6 +243,9 @@ class BatteryClearing(MarketRole):
             )
         else:
             clear_price = 0
+
+        print("###############################")
+        print(f"Clearing price: {clear_price:.2f}€")
 
 
         for order in accepted_orders:
