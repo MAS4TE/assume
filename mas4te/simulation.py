@@ -3,13 +3,14 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 import logging
-from datetime import datetime, timedelta
 import random
+from datetime import datetime, timedelta
 
-from mas4te_clearing_mechanism import BatteryClearing
 import pandas as pd
+from battery_utility_calculator import Storage
 from dateutil import rrule as rr
 from mas4te_bidding_strategy import LLMBuyStrategy, LLMSellStrategy
+from mas4te_clearing_mechanism import BatteryClearing
 
 from assume import World
 from assume.common.fast_pandas import FastIndex
@@ -149,12 +150,13 @@ def init(world: World, n=1):
             unit_type="demand",
             unit_operator_id=f"storage_demand_operator_{id}",
             unit_params={
-                "baseline_storage": 0,  # unit has no storage
+                # "baseline_storage": 0,  # unit has no storage
                 "max_power": 1000,  # max 1.000 kW demand
                 "min_power": 0,  # no minimum demand
                 "bidding_strategies": {"BatteryMarket": "llm_buy_strategy"},
                 "bidding_params": {"baseline_storage": 0},  # baseline to compare with
                 "technology": "demand",
+                "baseline_storage": Storage(id=0, c_rate=1, volume=0, efficiency=0.95),
             },
             forecaster=NaiveForecast(
                 index=index,
@@ -190,6 +192,7 @@ def init(world: World, n=1):
                 "bidding_strategies": {"BatteryMarket": "llm_sell_strategy"},
                 "bidding_params": {"baseline_storage": 20},  # baseline to compare with, should be equal to max_soc
                 "technology": "battery_storage",
+                "baseline_storage": Storage(id=0, c_rate=1, volume=50, efficiency=0.95)
             },
             forecaster=NaiveForecast(
                 index=index,
