@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
+from assume.units.mas4te import MAS4TEUnit
 from assume.common.base import BaseUnit
 from assume.units.demand import Demand
 from assume.units.exchange import Exchange
@@ -13,6 +14,7 @@ from assume.units.building import Building
 from assume.units.dst_components import demand_side_technologies
 
 unit_types: dict[str, BaseUnit] = {
+    "mas4te": MAS4TEUnit,
     "power_plant": PowerPlant,
     "demand": Demand,
     "exchange": Exchange,
