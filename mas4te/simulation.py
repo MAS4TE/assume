@@ -3,13 +3,14 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 import logging
-from datetime import datetime, timedelta
 import random
+from datetime import datetime, timedelta
 
-from mas4te_clearing_mechanism import BatteryClearing
 import pandas as pd
+from battery_utility_calculator import Storage
 from dateutil import rrule as rr
 from mas4te_bidding_strategy import LLMBuyStrategy, LLMSellStrategy
+from mas4te_clearing_mechanism import BatteryClearing
 
 from assume import World
 from assume.common.fast_pandas import FastIndex
@@ -50,9 +51,9 @@ def read_forecasts(start, end, id: int = 0, randomize: bool = False):
     grid_price = pd.read_csv(
         "./example_data/prices.csv", index_col=0, parse_dates=True
     )["grid"][start:end]
-    solar_gen = pd.read_csv(
-        "./example_data/solar.csv", index_col=0, parse_dates=True
-    )["solar" + "_" + id][start:end]
+    solar_gen = pd.read_csv("./example_data/solar.csv", index_col=0, parse_dates=True)[
+        "solar" + "_" + id
+    ][start:end]
 
     return {
         "demand": demand_forecast,
@@ -146,14 +147,15 @@ def init(world: World, n=1):
         world.add_unit_operator(id=f"storage_demand_operator_{id}")
         world.add_unit(
             id=f"storage_demand_{id}",
-            unit_type="demand",
+            unit_type="mas4te",
             unit_operator_id=f"storage_demand_operator_{id}",
             unit_params={
-                "baseline_storage": 0,  # unit has no storage
+                "baseline_storage": Storage(
+                    id=0, c_rate=1, volume=0, efficiency=1
+                ),  # unit has no storage
                 "max_power": 1000,  # max 1.000 kW demand
                 "min_power": 0,  # no minimum demand
                 "bidding_strategies": {"BatteryMarket": "llm_buy_strategy"},
-                "bidding_params": {"baseline_storage": 0},  # baseline to compare with
                 "technology": "demand",
             },
             forecaster=NaiveForecast(
@@ -170,7 +172,6 @@ def init(world: World, n=1):
 
     # actually create and add the supply units
     for i in range(n_supply_units):
-
         # same as above - set an ID or set randomize to True
         forecasts = read_forecasts(start, end, id=str(i))
 
@@ -178,9 +179,10 @@ def init(world: World, n=1):
         world.add_unit_operator(f"storage_provider_operator_{id}")
         world.add_unit(
             id=f"storage_provider_{id}",
-            unit_type="MAS4TEUnit",
+            unit_type="mas4te",
             unit_operator_id=f"storage_provider_operator_{id}",
             unit_params={
+                "baseline_storage": Storage(id=0, c_rate=1, volume=20, efficiency=0.95),
                 "max_power_charge": 1,  # max 1 kW charge
                 "max_power_discharge": 1,  # max 1 kW discharge
                 "max_soc": 20,  # max 20 kWh of storage capacity (equal to baseline)
@@ -188,7 +190,6 @@ def init(world: World, n=1):
                 "efficiency_charge": 0.975,  # charge and discharge to combine to 95% efficiency
                 "efficiency_discharge": 0.975,
                 "bidding_strategies": {"BatteryMarket": "llm_sell_strategy"},
-                "bidding_params": {"baseline_storage": 20},  # baseline to compare with, should be equal to max_soc
                 "technology": "battery_storage",
             },
             forecaster=NaiveForecast(

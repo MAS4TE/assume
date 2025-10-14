@@ -4,12 +4,15 @@
 
 import logging
 
-from assume.common.base import BaseUnit, Order
-from assume.common.fast_pandas import FastSeries
+from battery_utility_calculator import Storage
+
+from assume.common.base import BaseUnit
 from assume.common.forecasts import Forecaster
+from assume.common.market_objects import Order
 
 logger = logging.getLogger(__name__)
 EPS = 1e-4
+
 
 class MAS4TEUnit(BaseUnit):
     """Class for a MAS4TE unit."""
@@ -21,14 +24,14 @@ class MAS4TEUnit(BaseUnit):
         technology: str,
         bidding_strategies: dict,
         forecaster: Forecaster,
-        storage_kwh: float = 0,
+        baseline_storage: Storage,
         model_context: list[str] | None = None,
         previous_bids: list[Order] | None = None,
         previous_accepted_bids: list[Order] | None = None,
         previous_clearing_prices: list[float] | None = None,
         location: tuple[float, float] = (0, 0),
         node: str = "node0",
-        **kwargs
+        **kwargs,
     ):
         super().__init__(
             id=id,
@@ -41,7 +44,7 @@ class MAS4TEUnit(BaseUnit):
             **kwargs,
         )
 
-        self.storage_kwh = storage_kwh
+        self.baseline_storage = baseline_storage
         self.model_context = model_context
         self.previous_bids = previous_bids
         self.previous_accepted_bids = previous_accepted_bids
@@ -57,7 +60,7 @@ class MAS4TEUnit(BaseUnit):
         unit_dict = super().as_dict()
         unit_dict.update(
             {
-                "storage_kwh": self.storage_kwh,
+                "baseline_storage": self.baseline_storage,
                 "model_context": self.model_context,
                 "previous_bids": self.previous_bids,
                 "previous_accepted_bids": self.previous_accepted_bids,
