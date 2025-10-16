@@ -68,7 +68,7 @@ def read_forecasts(start, end, id: int = 0, randomize: bool = False):
 def init(world: World, n=1):
     # set start and end date
     start = datetime(2023, 1, 1, hour=13)
-    end = datetime(2023, 1, 8, hour=13)
+    end = datetime(2023, 12, 8, hour=13)
 
     # create index
     index = FastIndex(start, end, freq="h")
@@ -117,6 +117,7 @@ def init(world: World, n=1):
             additional_fields=["c_rate"],
             param_dict={"allowed_c_rates": [1]},
             minimum_bid_price=0,
+            volume_unit='kW',
         )
     ]
 

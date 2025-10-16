@@ -118,7 +118,7 @@ class LLMBuyStrategy(LLMStrategy):
                         "end_time": product[1],
                         "only_hours": product[2],
                         "price": row["marginal_price"],
-                        "volume": row["volume"],
+                        "volume": -row["volume"],
                         "c_rate": 1,
                     }
                 )
