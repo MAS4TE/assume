@@ -788,7 +788,7 @@ class LearningStrategy(BaseStrategy):
         obs_dim: int,
         act_dim: int,
         unique_obs_dim: int = 0,
-        num_timeseries_obs_dim: int = 2,
+        num_timeseries_obs_dim: int = 3,
         *args,
         **kwargs,
     ):
@@ -815,6 +815,7 @@ class LearningConfig(TypedDict):
     """
 
     continue_learning: bool
+    min_bid_price: float
     max_bid_price: float
     learning_mode: bool
     algorithm: str

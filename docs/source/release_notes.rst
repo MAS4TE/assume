@@ -2,9 +2,9 @@
 ..
 .. SPDX-License-Identifier: AGPL-3.0-or-later
 
-#######################
+#############
 Release Notes
-#######################
+#############
 
 Upcoming Release
 ================
@@ -12,8 +12,68 @@ Upcoming Release
   The features in this section are not released yet, but will be part of the next release! To use the features already you have to install the main branch,
   e.g. ``pip install git+https://github.com/assume-framework/assume``
 
-0.5.3 - (13th May 2025)
-=========================
+  **Bug Fixes:**
+
+- **Changed action clamping**: The action clamping was changed to extreme values defined by dicts. Instead of using the min and max of a forward pass in the NN, the clamping is now based on the activation function of the actor network. Previously, the output range was incorrectly assumed based only on the input, which failed when weights were negative due to Xavier initialization.
+- **Adjusted reward scaling**: Reward scaling now considers current available power instead of the unit’s max_power, reducing reward distortion when availability limits capacity. Available power is now derived from offered_order_volume instead of unit.calculate_min_max_power. Because dispatch is set before reward calculation, the previous method left available power at 0 whenever the unit was dispatched.
+
+  **New Features:**
+- **Unit Operator Portfolio Strategy**: A new bidding strategy type that enables portfolio optimization, where the default is called `DirectUnitOperatorStrategy`. This strategy simply passes through bidding decisions of individual units within a portfolio, which was the default behavior beforehand as well. Further we added 'CournotPortfolioStrategy' which allows to model bidding behavior of a portfolio of units in a day-ahead market. The strategy calculates the optimal bid price and quantity for each unit in the portfolio, taking into account markup and the production costs of the units. This enables users to simulate and analyze the impact of strategic portfolio bidding on market outcomes and unit profitability.
+
+
+0.5.5 - (13th August 2025)
+==========================
+
+**New Features:**
+
+- **Realtime simulation**: A simulation which runs in real-time instead of simulation time can be created and used for hardware-in-the-loop with real assets. Manual configuration of the agents is required for this.
+
+**Improvements:**
+
+- **Changed Logging for DRL metrics**: TensorBoard logging was restructured to separate metrics collected per gradient step and per simulation time step. This avoids unnecessary padding, ensures consistency, and prevents data loss across different logging frequencies.
+- **Improve checking for available solvers**: Defines the list of available solvers only once
+- **More notebooks in CI**: add notebook 10 to CI for functional validation of Demand-Side-Units (DSU).
+- **Correctly suppress highs output for linopy**: this fixes an error when running the redispatch market clearing on Google collab
+- **Add JOSS paper**
+- **Pin pip-tools to fix the docker build**
+- **Additional learning strategy for renewables**: Introduced a new learning strategy specifically designed for renewable energy sources. Most of the functionalities can just be inherited, we chose to add the availability of the unit into the individual observations and calculate the opportunity costs based on the available generation as well.
+- **Actor Output Clamping:** The action outputs of the actor neural network + noise are now always clamped to the valid output range, which is dynamically determined based on the actor architecture and its activation function. This prevents exploration noise from pushing actions outside the achievable output space of the actor, ensuring that bids remain within the intended limits.
+
+0.5.4 - (9th July 2025)
+=======================
+
+**New Features:**
+
+- **ThermalStorage with Scheduling:** Introduced a `ThermalStorage` class that extends `GenericStorage` to support both short-term (freely cycling) and long-term (schedule-driven) storage operation. Long-term mode allows users to define a binary schedule to restrict charging and discharging to specific periods, enabling realistic modeling of industrial or seasonal thermal storage behavior. To use this feature, set `storage_type` to `"long-term"` and provide a `storage_schedule_profile` (0: charging allowed, 1: discharging allowed). Hydrogen fuel type included for the Boiler
+- **Hydrogen_plant:** The HydrogenPlant master class has been refactored for modularity. Technologies such as the electrolyser and (optionally) the SeasonalHydrogenStorage are now connected in a flexible manner, supporting both per-timestep and cumulative hydrogen demand balancing. The plant model now robustly accommodates both storage and non-storage configurations, ensuring correct mass balances across all scenarios.
+- **Steam Generation Plant:** Introduced a 'SteamGenerationPlant' class to model steam generation processes. This class supports both electric and thermal inputs, allowing for flexible operation based on available resources. The plant can be configured with various components, such as heat pumps and boilers, to optimize steam production.
+- **New Demand Side Flexibility Measure** Implemented 'symmetric_flexible_block' flexibility measure for demand side units. This measure allows users to define a symmetric block of flexibility, enabling to construct a load profile based on which the block bids for CRM amrket can be formulated.
+- **Positive and Negative Flexibility for DSM Units** Introduced the bidding strategies 'DSM_PosCRM_Strategy' and 'DSM_PosCRM_Strategy' to define positive and negative flexibility for demand side management (DSM) units. This feature allows users to participate DSM units in a Control Reserve Market (CRM).
+- **Electricity price signal based Flexibility Signal for DSM**: Implemented'electricity_price_signal' flexibility measure for demand side units, Thus measure allows to shift the load based on the electricity price signal, enabling users to perform this operation based on a reference load profile.
+- **Documentation**: Fullscale DSM Tutorial and adjusted learning tutorials to include new bidding strategy and one particularly for storages.
+- **New Redispatch Tutorial**: Provide a new tutorial referencing ongoing dveelopment on an extra branch.
+
+**Improvements:**
+
+- **Initial State of Charge (SOC) Enforcement:** The initial SOC is now explicitly enforced as a model constraint for all storage units. This guarantees that simulations always start from the intended state, ensuring scientific reproducibility and correctness.
+- **Enhanced Test Suite for Storage Units:** Comprehensive unit tests have been added for both `GenericStorage` and `ThermalStorage`, including short-term and long-term scheduling, efficiency losses, ramping, power limits, schedule adherence, and initial SOC.
+  - Tests verify economic cycling (charging at low price, discharging at high price), round-trip efficiency, and no simultaneous charge/discharge.
+- **SeasonalHydrogenStorage:** The framework of SeasonalHydrogenStorage is now consistent with the framework of Thermal storage.
+- **Refactored Learning Strategies:** Much of the code for generating observations and actions was redundant across different unit types. This redundancy has been removed by introducing the function in the common base class, making it easier to extend the learning strategies in the future. As a result, new functions such as `get_individual_observations`, which are specific to each unit type, have been added.
+- **Change energy_cost Observation in Storage Learning:**  The cost of stored energy for the learning storage is now tracked solely based on acquisition cost while charging, independent of discharging revenues. This change prevents negative cost values, ensures a consistent economic interpretation of stored energy, and improves the guiding properties of the observations of reinforcement learning according to shap value experiments.
+    Marginal costs are now included as well. Storage marginal costs currently only consist of additional charge or discharge costs, e.g. to include fixed volumetric grid fees. Revising and comparing the mc logic to the Powerplant implementation resulted in removing the efficiency correction factor of the additional costs for consistency.
+- **Component connection in hydrogen plant:** Fixed a bug regarding the connection of the components in the hydrogen plant.
+
+
+**Bug Fixes:**
+
+- **Correct Schedule Enforcement in ThermalStorage:** Fixed an error in the schedule constraint logic for long-term storage. The model now strictly enforces that charging and discharging can only occur during their respective scheduled periods.
+- **Initial SOC Bug:** Fixed a bug where the initial SOC could be ignored or set to an unintended value by the solver. The initial SOC is now always fixed at model initialization.
+- **Boiler Upper Bound:** Added a missing upper bound constraint to `natural_gas_in` in the `Boiler` component to ensure that the fuel input never exceeds the specified maximum power. This change prevents the solver from assigning unphysical input values and brings consistency with the handling of other fuel types.
+- **Missing init:** Steam generation plant and CRM bidding strategies for dsm was missing in 'init'.
+
+0.5.3 - (4th June 2025)
+=======================
 
 **New Features:**
 
@@ -39,7 +99,6 @@ Upcoming Release
   variance in the data, but a note was added to explain this.
 - **Changed market price in rejected orders**: Fixed a bug where the wrong market price was written in the rejected orders, namely any auction with more than 1 product had the price of the last product written as the
   market price instead of the price of the respective hour. This was, however, only a mistake for the rejected orders.
-
 
 0.5.2 - (21st March 2025)
 =========================
@@ -81,7 +140,6 @@ Upcoming Release
   - Added tests for the ``Building`` class.
   - Refactored variable names for better readability and consistency.
   - Restructured the process sequence for improved efficiency.
-
 
 v0.5.1 - (3rd February 2025)
 ===========================================

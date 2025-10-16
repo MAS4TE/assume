@@ -111,8 +111,38 @@ class Actor(nn.Module):
     Parent class for actor networks.
     """
 
+    activation_function_limit = {
+        "softsign": (-1, 1),
+        "tanh": (-1, 1),
+        "sigmoid": (0, 1),
+        "relu": (0, float("inf")),
+    }
+
+    activation_function_map = {
+        "softsign": F.softsign,
+        "tanh": th.tanh,
+        "sigmoid": th.sigmoid,
+        "relu": F.relu,
+    }
+
     def __init__(self):
         super().__init__()
+
+        self.activation = "softsign"  # or "tanh", "sigmoid", "relu"
+
+        if self.activation not in self.activation_function_limit:
+            raise ValueError(
+                f"Activation '{self.activation}' not supported! Supported: {list(self.activation_function_limit.keys())}"
+            )
+        self.min_output, self.max_output = self.activation_function_limit[
+            self.activation
+        ]
+
+        self.activation_function = self.activation_function_map.get(self.activation)
+        if self.activation_function is None:
+            raise ValueError(
+                f"Activation '{self.activation}' not implemented in forward pass!"
+            )
 
 
 class MLPActor(Actor):
@@ -144,7 +174,7 @@ class MLPActor(Actor):
         """Forward pass for action prediction."""
         x = F.relu(self.FC1(obs))
         x = F.relu(self.FC2(x))
-        x = F.softsign(self.FC3(x))
+        x = self.activation_function(self.FC3(x))
 
         return x
 
@@ -168,7 +198,7 @@ class LSTMActor(Actor):
         act_dim: int,
         float_type,
         unique_obs_dim: int = 0,
-        num_timeseries_obs_dim: int = 2,
+        num_timeseries_obs_dim: int = 3,
         *args,
         **kwargs,
     ):
@@ -217,7 +247,7 @@ class LSTMActor(Actor):
         outputs = []
 
         for time_step in x1.split(1, dim=2):
-            time_step = time_step.reshape(-1, 2)
+            time_step = time_step.reshape(-1, self.num_timeseries_obs_dim)
             h_t, c_t = self.LSTM1(time_step, (h_t, c_t))
             h_t2, c_t2 = self.LSTM2(h_t, (h_t2, c_t2))
             outputs += [h_t2]
@@ -226,8 +256,7 @@ class LSTMActor(Actor):
         x = th.cat((outputs, x2), dim=1)
 
         x = F.relu(self.FC1(x))
-        x = F.softsign(self.FC2(x))
-        # x = th.tanh(self.FC3(x))
+        x = self.activation_function(self.FC2(x))
 
         if not is_batched:
             x = x.squeeze(0)

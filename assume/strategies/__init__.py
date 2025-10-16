@@ -19,13 +19,19 @@ from assume.strategies.naive_strategies import (
     NaiveSingleBidStrategy,
     NaiveExchangeStrategy,
     ElasticDemandStrategy,
+    DSM_PosCRM_Strategy,
+    DSM_NegCRM_Strategy,
 )
 from assume.strategies.manual_strategies import SimpleManualTerminalStrategy
 from assume.strategies.dmas_powerplant import DmasPowerplantStrategy
 from assume.strategies.dmas_storage import DmasStorageStrategy
+from assume.strategies.portfolio_strategies import (
+    UnitOperatorStrategy,
+    DirectUnitOperatorStrategy,
+    CournotPortfolioStrategy,
+)
 
-
-bidding_strategies: dict[str, BaseStrategy] = {
+bidding_strategies: dict[str, type[BaseStrategy | UnitOperatorStrategy]] = {
     "naive_eom": NaiveSingleBidStrategy,
     "naive_dam": NaiveProfileStrategy,
     "naive_pos_reserve": NaiveSingleBidStrategy,
@@ -41,12 +47,16 @@ bidding_strategies: dict[str, BaseStrategy] = {
     "flexable_eom_storage": flexableEOMStorage,
     "flexable_neg_crm_storage": flexableNegCRMStorage,
     "flexable_pos_crm_storage": flexablePosCRMStorage,
+    "pos_crm_dsm": DSM_PosCRM_Strategy,
+    "neg_crm_dsm": DSM_NegCRM_Strategy,
     "naive_redispatch": NaiveRedispatchStrategy,
     "naive_da_dsm": NaiveDADSMStrategy,
     "naive_redispatch_dsm": NaiveRedispatchDSMStrategy,
     "manual_strategy": SimpleManualTerminalStrategy,
     "dmas_powerplant": DmasPowerplantStrategy,
     "dmas_storage": DmasStorageStrategy,
+    "cournot_portfolio": CournotPortfolioStrategy,
+    "default_portfolio": DirectUnitOperatorStrategy,
 }
 
 try:
@@ -54,11 +64,14 @@ try:
         RLStrategy,
         RLStrategySingleBid,
         StorageRLStrategy,
+        RenewableRLStrategy,
     )
 
     bidding_strategies["pp_learning"] = RLStrategy
     bidding_strategies["pp_learning_single_bid"] = RLStrategySingleBid
     bidding_strategies["storage_learning"] = StorageRLStrategy
+    bidding_strategies["renewable_eom_learning"] = RenewableRLStrategy
+
 
 except ImportError:
     pass

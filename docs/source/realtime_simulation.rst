@@ -28,8 +28,8 @@ Note that the time must be provided in UTC as every timestamp in mango is interp
 
 This simulation starts directly and ends after one hour.
 
-Take a look at the `world_rt.py` example for a full working real time simulation which can be run using
+Take a look at the `realtime/world_rt.py` example for a full working real time simulation which can be run using
 
-    python examples/world_rt.py
+    python examples/realtime/world_rt.py
 
 Here, we have a simple market which is scheduled every single minute and creates similar market results.
