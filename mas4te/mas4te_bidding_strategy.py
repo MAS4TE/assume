@@ -86,13 +86,25 @@ class LLMBuyStrategy(LLMStrategy):
             storages_worth = buc.calculate_multiple_storage_worth(
                 baseline_storage=unit.baseline_storage,
                 storages_to_calculate=self.storages_to_calculate,
-                demand=unit.forecaster["energy_demand"].as_pd_series(start=start, end=end),
-                solar_generation=unit.forecaster["solar_gen"].loc[start:end,],
-                grid_prices=unit.forecaster["grid_price"].as_pd_series(start=start, end=end),
-                eeg_prices=unit.forecaster["eeg_price"].as_pd_series(start=start, end=end),
-                community_market_prices=unit.forecaster["community_price"].as_pd_series(start=start, end=end),
-                wholesale_market_prices=unit.forecaster["wholesale_price"].as_pd_series(start=start, end=end),
-                solver="gurobi",
+                demand=unit.forecaster["energy_demand"].as_pd_series(
+                    start=start, end=end
+                ),
+                solar_generation=unit.forecaster["solar_gen"].as_pd_series(
+                    start=start, end=end
+                ),
+                grid_prices=unit.forecaster["grid_price"].as_pd_series(
+                    start=start, end=end
+                ),
+                eeg_prices=unit.forecaster["eeg_price"].as_pd_series(
+                    start=start, end=end
+                ),
+                community_market_prices=unit.forecaster["community_price"].as_pd_series(
+                    start=start, end=end
+                ),
+                wholesale_market_prices=unit.forecaster["wholesale_price"].as_pd_series(
+                    start=start, end=end
+                ),
+                solver="appsi_highs",
             )
             bidding_curve = buc.calculate_bidding_curve(
                 volumes_worth=storages_worth,
@@ -167,13 +179,25 @@ class LLMSellStrategy(LLMStrategy):
             storages_worth = buc.calculate_multiple_storage_worth(
                 baseline_storage=unit.baseline_storage,
                 storages_to_calculate=self.storages_to_calculate,
-                demand=unit.forecaster["energy_demand"].as_pd_series(start=start, end=end),
-                solar_generation=unit.forecaster["solar_gen"].as_pd_series(start=start, end=end),
-                grid_prices=unit.forecaster["grid_price"].as_pd_series(start=start, end=end),
-                eeg_prices=unit.forecaster["eeg_price"].as_pd_series(start=start, end=end),
-                community_market_prices=unit.forecaster["community_price"].as_pd_series(start=start, end=end),
-                wholesale_market_prices=unit.forecaster["wholesale_price"].as_pd_series(start=start, end=end),
-                solver="gurobi",
+                demand=unit.forecaster["energy_demand"].as_pd_series(
+                    start=start, end=end
+                ),
+                solar_generation=unit.forecaster["solar_gen"].as_pd_series(
+                    start=start, end=end
+                ),
+                grid_prices=unit.forecaster["grid_price"].as_pd_series(
+                    start=start, end=end
+                ),
+                eeg_prices=unit.forecaster["eeg_price"].as_pd_series(
+                    start=start, end=end
+                ),
+                community_market_prices=unit.forecaster["community_price"].as_pd_series(
+                    start=start, end=end
+                ),
+                wholesale_market_prices=unit.forecaster["wholesale_price"].as_pd_series(
+                    start=start, end=end
+                ),
+                solver="appsi_highs",
             )
             bidding_curve = buc.calculate_bidding_curve(
                 volumes_worth=storages_worth,
