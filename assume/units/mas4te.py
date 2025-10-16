@@ -60,7 +60,7 @@ class MAS4TEUnit(BaseUnit):
         unit_dict = super().as_dict()
         unit_dict.update(
             {
-                "baseline_storage": self.baseline_storage,
+                "baseline_storage": str(self.baseline_storage),
                 "model_context": self.model_context,
                 "previous_bids": self.previous_bids,
                 "previous_accepted_bids": self.previous_accepted_bids,

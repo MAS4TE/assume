@@ -43,7 +43,7 @@ dependencies = [
     "pyyaml-include >=2.2a",
     "pyomo >=6.8.0",
     "highspy",
-    "battery-utility-calculator @ git+https://github.com/NOWUM/battery-utility-calculator@dev",
+    "battery-utility-calculator @ git+https://github.com/NOWUM/battery-utility-calculator",
 ]
 
 [project.optional-dependencies]
