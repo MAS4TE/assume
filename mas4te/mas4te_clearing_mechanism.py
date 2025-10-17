@@ -3,14 +3,12 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 import logging
-import random
 from datetime import timedelta
-from itertools import groupby
 from operator import itemgetter
 
 import pyomo.environ as pyo
 
-from assume.common.market_objects import MarketConfig, MarketProduct, Orderbook, Order
+from assume.common.market_objects import MarketConfig, Order, Orderbook
 from assume.markets.base_market import MarketRole
 
 logger = logging.getLogger(__name__)
@@ -44,14 +42,11 @@ def calculate_meta(accepted_supply_orders, accepted_demand_orders, product):
     }
 
 
-
 class BatteryClearing(MarketRole):
     def __init__(self, marketconfig: MarketConfig):
         super().__init__(marketconfig)
 
-    def validate_orderbook(
-        self, orderbook: Orderbook, agent_addr
-    ) -> None:
+    def validate_orderbook(self, orderbook: Orderbook, agent_addr) -> None:
         allowed_c_rates = self.marketconfig.param_dict["allowed_c_rates"]
         for order in orderbook:
             if order["c_rate"] not in allowed_c_rates:
@@ -64,17 +59,22 @@ class BatteryClearing(MarketRole):
 
         # Restrict the supply volume to be less than or equal to the demand volume
         model.restrict_product_balance = pyo.Constraint(
-            expr=sum(model.supply_volume[i] for i in model.supply_volume) == \
-            sum(model.demand_volume[i] for i in model.demand_volume)
+            expr=sum(model.supply_volume[i] for i in model.supply_volume)
+            == sum(model.demand_volume[i] for i in model.demand_volume)
         )
-
 
     def set_model_objective(self, model: pyo.ConcreteModel) -> None:
         """Sets the model objective function."""
 
         # calculate supply and demand costs
-        supply_costs = sum(model.supply_price[bid_id] * model.supply_volume[bid_id] for bid_id in model.supply_price)
-        demand_costs = sum(model.demand_price[bid_id] * model.demand_volume[bid_id] for bid_id in model.demand_price)
+        supply_costs = sum(
+            model.supply_price[bid_id] * model.supply_volume[bid_id]
+            for bid_id in model.supply_price
+        )
+        demand_costs = sum(
+            model.demand_price[bid_id] * model.demand_volume[bid_id]
+            for bid_id in model.demand_price
+        )
 
         # calculate the traded volume
         traded_volume = sum(model.supply_volume[i] for i in model.supply_volume)
@@ -82,10 +82,12 @@ class BatteryClearing(MarketRole):
         # maximize value (demand - supply costs) and add small
         # positive amount for each traded unit as incentive for equal prices
         model.objective = pyo.Objective(
-            expr=demand_costs - supply_costs + 1e-6*traded_volume, sense=pyo.maximize
+            expr=demand_costs - supply_costs + 1e-6 * traded_volume, sense=pyo.maximize
         )
 
-    def add_supply_vars(self, model: pyo.ConcreteModel, supply_orders: list[Order]) -> None:
+    def add_supply_vars(
+        self, model: pyo.ConcreteModel, supply_orders: list[Order]
+    ) -> None:
         """Creates supply price & volume variable."""
 
         model.supply_volume = pyo.Var(
@@ -98,11 +100,16 @@ class BatteryClearing(MarketRole):
 
         model.supply_price = pyo.Param(
             [supply_order["bid_id"] for supply_order in supply_orders],
-            initialize={supply_order["bid_id"]: supply_order["price"] for supply_order in supply_orders},
+            initialize={
+                supply_order["bid_id"]: supply_order["price"]
+                for supply_order in supply_orders
+            },
             domain=pyo.NonNegativeReals,
         )
 
-    def add_demand_vars(self, model: pyo.ConcreteModel, demand_orders: list[Order]) -> None:
+    def add_demand_vars(
+        self, model: pyo.ConcreteModel, demand_orders: list[Order]
+    ) -> None:
         """Creates demand price & volume variable."""
 
         model.demand_volume = pyo.Var(
@@ -115,7 +122,10 @@ class BatteryClearing(MarketRole):
 
         model.demand_price = pyo.Param(
             [demand_order["bid_id"] for demand_order in demand_orders],
-            initialize={demand_order["bid_id"]: demand_order["price"] for demand_order in demand_orders},
+            initialize={
+                demand_order["bid_id"]: demand_order["price"]
+                for demand_order in demand_orders
+            },
             domain=pyo.NonNegativeReals,
         )
 
@@ -133,9 +143,11 @@ class BatteryClearing(MarketRole):
         logger.debug(f"Objective value: {pyo.value(model.objective)}")
 
     def get_accepted_rejected_orders(
-        self, model: pyo.ConcreteModel, supply_orders: list[Order], demand_orders: list[Order]
+        self,
+        model: pyo.ConcreteModel,
+        supply_orders: list[Order],
+        demand_orders: list[Order],
     ) -> tuple[list[Order], list[Order]]:
-
         accepted_orders = []
         rejected_orders = []
         for supply_order in supply_orders:
@@ -188,9 +200,8 @@ class BatteryClearing(MarketRole):
         return max(all_awarded_prices)
 
     def clear(
-            self, orderbook: Orderbook, market_products
+        self, orderbook: Orderbook, market_products
     ) -> tuple[Orderbook, Orderbook, list[dict]]:
-
         # get demand and supply orders from orderbook
         demand_orders = [x for x in orderbook if x["volume"] < 0]
         supply_orders = [x for x in orderbook if x["volume"] > 0]
@@ -216,34 +227,18 @@ class BatteryClearing(MarketRole):
             model, supply_orders, demand_orders
         )
 
-        print("###############################")
-        print("Accepted orders:")
-        for order in accepted_orders:
-            if order["volume"] < 0:
-                add = "buy "
-            else:
-                add = "sell "
-            print(f"{add}{order['accepted_volume']=}, {order['price']=}")
-        print("Rejected orders:")
-        for order in rejected_orders:
-            if order["volume"] < 0:
-                add = "buy "
-            else:
-                add = "sell "
-            print(f"{add}{order['volume']=}, {order['price']=}")
-
-        print("###############################")
-        accepted_demand_orders = [x for x in accepted_orders if x["accepted_volume"] < 0]
-        accepted_supply_orders = [x for x in accepted_orders if x["accepted_volume"] > 0]
+        accepted_demand_orders = [
+            x for x in accepted_orders if x["accepted_volume"] < 0
+        ]
+        accepted_supply_orders = [
+            x for x in accepted_orders if x["accepted_volume"] > 0
+        ]
 
         # use uniform pricing
         if accepted_orders:
-            clear_price = float(
-                max(map(itemgetter("price"), accepted_supply_orders))
-            )
+            clear_price = float(max(map(itemgetter("price"), accepted_supply_orders)))
         else:
             clear_price = 0
-
 
         for order in accepted_orders:
             order["accepted_price"] = clear_price
@@ -253,16 +248,21 @@ class BatteryClearing(MarketRole):
             order["accepted_volume"] = 0
             order["accepted_price"] = clear_price
 
-        # model.pprint()
+        print(f"Clearing price: {clear_price * 100} ct./kWh")
+        print(
+            f"{sum([abs(x['accepted_volume']) for x in accepted_demand_orders])} kWh traded volume"
+        )
+        print("----------------------------------------")
+
         meta = []
 
         meta.append(
-                calculate_meta(
-                    accepted_supply_orders,
-                    accepted_demand_orders,
-                    market_products[0],
-                )
+            calculate_meta(
+                accepted_supply_orders,
+                accepted_demand_orders,
+                market_products[0],
             )
+        )
         flows = []
 
         return accepted_orders, rejected_orders, meta, flows

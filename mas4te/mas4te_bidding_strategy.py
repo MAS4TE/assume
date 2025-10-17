@@ -104,7 +104,7 @@ class LLMBuyStrategy(LLMStrategy):
                 wholesale_market_prices=unit.forecaster["wholesale_price"].as_pd_series(
                     start=start, end=end
                 ),
-                solver="appsi_highs",
+                solver="gurobi",
             )
             bidding_curve = buc.calculate_bidding_curve(
                 volumes_worth=storages_worth,
@@ -197,7 +197,7 @@ class LLMSellStrategy(LLMStrategy):
                 wholesale_market_prices=unit.forecaster["wholesale_price"].as_pd_series(
                     start=start, end=end
                 ),
-                solver="appsi_highs",
+                solver="gurobi",
             )
             bidding_curve = buc.calculate_bidding_curve(
                 volumes_worth=storages_worth,

@@ -117,7 +117,7 @@ def init(world: World, n=1):
             additional_fields=["c_rate"],
             param_dict={"allowed_c_rates": [1]},
             minimum_bid_price=0,
-            volume_unit='kW',
+            volume_unit="kW",
         )
     ]
 
@@ -183,7 +183,7 @@ def init(world: World, n=1):
             unit_type="mas4te",
             unit_operator_id=f"storage_provider_operator_{id}",
             unit_params={
-                "baseline_storage": Storage(id=0, c_rate=1, volume=20, efficiency=0.95),
+                "baseline_storage": Storage(id=0, c_rate=1, volume=5, efficiency=0.95),
                 "max_power_charge": 1,  # max 1 kW charge
                 "max_power_discharge": 1,  # max 1 kW discharge
                 "max_soc": 20,  # max 20 kWh of storage capacity (equal to baseline)
