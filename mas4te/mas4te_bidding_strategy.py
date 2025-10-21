@@ -28,7 +28,11 @@ class LLMStrategy(BaseStrategy):
         self.headers = {"Content-Type": "application/json"}
         self.storages_to_calculate = self.build_storages_to_calculate()
 
-        self.process = Process(target=communication_agent.run_app, daemon=True)
+        self.process = Process(
+            target=communication_agent.run_app,
+            daemon=True,
+            args={"port": kwargs.get("comm_agent_port", 8000)},
+        )
         self.process.start()
 
     def build_storages_to_calculate(self):

@@ -156,7 +156,10 @@ def init(world: World, n=1):
                 ),  # unit has no storage
                 "max_power": 1000,  # max 1.000 kW demand
                 "min_power": 0,  # no minimum demand
-                "bidding_strategies": {"BatteryMarket": "llm_buy_strategy"},
+                "bidding_strategies": {
+                    "BatteryMarket": "llm_buy_strategy",
+                },
+                "bidding_params": {"comm_agent_port": 8000 + i},
                 "technology": "demand",
             },
             forecaster=NaiveForecast(
@@ -191,6 +194,7 @@ def init(world: World, n=1):
                 "efficiency_charge": 0.975,  # charge and discharge to combine to 95% efficiency
                 "efficiency_discharge": 0.975,
                 "bidding_strategies": {"BatteryMarket": "llm_sell_strategy"},
+                "bidding_params": {"comm_agent_port": 8000 + n_demand_units + i},
                 "technology": "battery_storage",
             },
             forecaster=NaiveForecast(
