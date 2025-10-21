@@ -45,6 +45,7 @@ dependencies = [
     "xarray <2025.7.0", # https://github.com/PyPSA/linopy/issues/470
     "highspy",
     "battery-utility-calculator @ git+https://github.com/NOWUM/battery-utility-calculator",
+    "mas4te-communication-agent @ git+https://github.com/MAS4TE/communications_agent",
 ]
 
 [project.optional-dependencies]

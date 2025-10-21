@@ -2,7 +2,10 @@
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
+from multiprocessing import Process
+
 import battery_utility_calculator as buc
+import communication_agent
 import requests
 from battery_utility_calculator import Storage
 
@@ -24,6 +27,9 @@ class LLMStrategy(BaseStrategy):
         self.api_url = llm_api_url
         self.headers = {"Content-Type": "application/json"}
         self.storages_to_calculate = self.build_storages_to_calculate()
+
+        self.process = Process(target=communication_agent.run_app, daemon=True)
+        self.process.start()
 
     def build_storages_to_calculate(self):
         """Builds a list of storage volumes to calculate worth for.
@@ -150,6 +156,11 @@ class LLMSellStrategy(LLMStrategy):
 
     def __init__(self, llm_api_url=None, baseline_storage=0, *args, **kwargs):
         super().__init__(llm_api_url, baseline_storage, *args, **kwargs)
+
+        # create MQTT Service
+        # make rest api call
+        # make call to llm
+        # whatever the f we want
 
     def calculate_bids(
         self,
