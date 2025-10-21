@@ -2,9 +2,8 @@
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
-from multiprocessing import Process
+from multiprocessing import Process, Queue
 
-import battery_utility_calculator as buc
 import communication_agent
 import requests
 from battery_utility_calculator import Storage
@@ -28,10 +27,17 @@ class LLMStrategy(BaseStrategy):
         self.headers = {"Content-Type": "application/json"}
         self.storages_to_calculate = self.build_storages_to_calculate()
 
+        self.market_to_llm_queue = Queue()
+        self.llm_to_market_queue = Queue()
+
         self.process = Process(
             target=communication_agent.run_app,
             daemon=True,
-            args={"port": kwargs.get("comm_agent_port", 8000)},
+            kwargs={
+                "port": kwargs.get("comm_agent_port", 8000),
+                "market_to_llm_queue": self.market_to_llm_queue,
+                "llm_to_market_queue": self.llm_to_market_queue,
+            },
         )
         self.process.start()
 
@@ -86,52 +92,15 @@ class LLMBuyStrategy(LLMStrategy):
             Orderbook: The calculated order book with bids.
         """
 
-        bids = []
+        self.market_to_llm_queue.put(
+            {
+                "msg": "calculate bids",
+                # "market_config": market_config,
+                "product_tuples": product_tuples[0],
+            }
+        )
 
-        # iterate over each product (which is only one in phase 1)
-        for product in product_tuples:
-            start = product[0]
-            end = product[1]
-
-            storages_worth = buc.calculate_multiple_storage_worth(
-                baseline_storage=unit.baseline_storage,
-                storages_to_calculate=self.storages_to_calculate,
-                demand=unit.forecaster["energy_demand"].as_pd_series(
-                    start=start, end=end
-                ),
-                solar_generation=unit.forecaster["solar_gen"].as_pd_series(
-                    start=start, end=end
-                ),
-                grid_prices=unit.forecaster["grid_price"].as_pd_series(
-                    start=start, end=end
-                ),
-                eeg_prices=unit.forecaster["eeg_price"].as_pd_series(
-                    start=start, end=end
-                ),
-                community_market_prices=unit.forecaster["community_price"].as_pd_series(
-                    start=start, end=end
-                ),
-                wholesale_market_prices=unit.forecaster["wholesale_price"].as_pd_series(
-                    start=start, end=end
-                ),
-                solver="gurobi",
-            )
-            bidding_curve = buc.calculate_bidding_curve(
-                volumes_worth=storages_worth,
-                buy_or_sell_side="buyer",
-            )
-
-            for idx, row in bidding_curve.iterrows():
-                bids.append(
-                    {
-                        "start_time": product[0],
-                        "end_time": product[1],
-                        "only_hours": product[2],
-                        "price": row["marginal_price"],
-                        "volume": -row["volume"],
-                        "c_rate": 1,
-                    }
-                )
+        bids = self.llm_to_market_queue.get()
 
         return bids
 
@@ -149,10 +118,14 @@ class LLMBuyStrategy(LLMStrategy):
             marketconfig (MarketConfig): The market configuration.
             orderbook (Orderbook): The orderbook.
         """
-        # here we can learn something from our previous biddings
-        # TODO Bea
-        self.prompts = ...
-        self.accepted_orders = orderbook
+
+        self.market_to_llm_queue.put(
+            {
+                "msg": "market result",
+                # "market_config": marketconfig,
+                "orderbook": orderbook,
+            }
+        )
 
 
 class LLMSellStrategy(LLMStrategy):
@@ -160,11 +133,6 @@ class LLMSellStrategy(LLMStrategy):
 
     def __init__(self, llm_api_url=None, baseline_storage=0, *args, **kwargs):
         super().__init__(llm_api_url, baseline_storage, *args, **kwargs)
-
-        # create MQTT Service
-        # make rest api call
-        # make call to llm
-        # whatever the f we want
 
     def calculate_bids(
         self,
@@ -184,51 +152,37 @@ class LLMSellStrategy(LLMStrategy):
             Orderbook: The calculated order book with bids.
         """
 
-        bids = []
+        self.market_to_llm_queue.put(
+            {
+                "msg": "calculate bids",
+                # "market_config": market_config,
+                "product_tuples": product_tuples[0],
+            }
+        )
 
-        # iterate over each product (which is only one in phase 1)
-        for product in product_tuples:
-            start = product[0]
-            end = product[1]
-
-            storages_worth = buc.calculate_multiple_storage_worth(
-                baseline_storage=unit.baseline_storage,
-                storages_to_calculate=self.storages_to_calculate,
-                demand=unit.forecaster["energy_demand"].as_pd_series(
-                    start=start, end=end
-                ),
-                solar_generation=unit.forecaster["solar_gen"].as_pd_series(
-                    start=start, end=end
-                ),
-                grid_prices=unit.forecaster["grid_price"].as_pd_series(
-                    start=start, end=end
-                ),
-                eeg_prices=unit.forecaster["eeg_price"].as_pd_series(
-                    start=start, end=end
-                ),
-                community_market_prices=unit.forecaster["community_price"].as_pd_series(
-                    start=start, end=end
-                ),
-                wholesale_market_prices=unit.forecaster["wholesale_price"].as_pd_series(
-                    start=start, end=end
-                ),
-                solver="gurobi",
-            )
-            bidding_curve = buc.calculate_bidding_curve(
-                volumes_worth=storages_worth,
-                buy_or_sell_side="seller",
-            )
-
-            for idx, row in bidding_curve.iterrows():
-                bids.append(
-                    {
-                        "start_time": product[0],
-                        "end_time": product[1],
-                        "only_hours": product[2],
-                        "price": row["marginal_price"],
-                        "volume": row["volume"],
-                        "c_rate": 1,
-                    }
-                )
+        bids = self.llm_to_market_queue.get()
 
         return bids
+
+    def calculate_reward(
+        self,
+        unit: BaseUnit,
+        marketconfig: MarketConfig,
+        orderbook: Orderbook,
+    ):
+        """
+        Calculates the reward for the given unit.
+
+        Args:
+            unit (BaseUnit): The unit.
+            marketconfig (MarketConfig): The market configuration.
+            orderbook (Orderbook): The orderbook.
+        """
+
+        self.market_to_llm_queue.put(
+            {
+                "msg": "market result",
+                # "market_config": marketconfig,
+                "orderbook": orderbook,
+            }
+        )
