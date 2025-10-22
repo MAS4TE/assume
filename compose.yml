@@ -60,83 +60,17 @@ services:
       placement:
         constraints: [node.role == manager]
 
-  # to enable rendering png screenshots directly from grafana
-  # for example to embed them in an iframe, you can use this
-  renderer:
-    image: grafana/grafana-image-renderer:latest
-    container_name: renderer
-    profiles: ["renderer"]
-    ports:
-      - 8081
-
-
-  # to run a single simulation in
-  simulation:
-    container_name: simulation
-    image: ghcr.io/assume-framework/assume:latest
-    profiles: ["simulation"]
-    build: .
-    depends_on:
-      - assume_db
-    command: -s example_01a -c tiny -db "postgresql://assume:assume@assume_db:5432/assume"
-
-  # to run the simulation distributed with MQTT
-  mqtt-broker:
-    container_name: mqtt-broker
-    image: eclipse-mosquitto:2
+  pgadmin:
+    # user: root
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin4
     restart: always
-    profiles: ["mqtt"]
+    environment:
+      PGADMIN_DEFAULT_EMAIL: a@a.a
+      PGADMIN_DEFAULT_PASSWORD: a
+      PGADMIN_LISTEN_PORT: 80
+      PGADMIN_CONFIG_UPGRADE_CHECK_ENABLED: "False"
+    # volumes:
+    #   - ./data/pgadmin:/var/lib/pgadmin
     ports:
-      - "1883:1883/tcp"
-    volumes:
-      - ./docker_configs/mqtt.conf:/mosquitto/config/mosquitto.conf
-    healthcheck:
-      test: "mosquitto_sub -t '$$SYS/#' -C 1 | grep -v Error || exit 1"
-      interval: 45s
-      timeout: 5s
-      retries: 5
-
-  # to run a distributed simulation with docker compose
-  simulation_mgr:
-    container_name: simulation_mgr
-    image: ghcr.io/assume-framework/assume:latest
-    profiles: ["mqtt"]
-    depends_on:
-      - assume_db
-      - mqtt-broker
-    environment:
-      DB_URI: "postgresql://assume:assume@assume_db:5432/assume"
-      MQTT_BROKER: mqtt-broker
-    volumes:
-      - ./examples/distributed_simulation/config.py:/src/examples/distributed_simulation/config.py
-    entrypoint: python3 -m examples.distributed_simulation.world_manager agent agent2
-
-  simulation_client01:
-    container_name: simulation_client01
-    image: ghcr.io/assume-framework/assume:latest
-    profiles: ["mqtt"]
-    build: .
-    environment:
-      DB_URI: "postgresql://assume:assume@assume_db:5432/assume"
-      MQTT_BROKER: mqtt-broker
-    depends_on:
-      - assume_db
-      - mqtt-broker
-    volumes:
-      - ./examples/distributed_simulation/config.py:/src/examples/distributed_simulation/config.py
-    entrypoint: python3 -m examples.distributed_simulation.world_agent 0 2 agent
-
-  simulation_client02:
-    container_name: simulation_client02
-    image: ghcr.io/assume-framework/assume:latest
-    profiles: ["mqtt"]
-    build: .
-    environment:
-      DB_URI: "postgresql://assume:assume@assume_db:5432/assume"
-      MQTT_BROKER: mqtt-broker
-    depends_on:
-      - assume_db
-      - mqtt-broker
-    volumes:
-      - ./examples/distributed_simulation/config.py:/src/examples/distributed_simulation/config.py
-    entrypoint: python3 -m examples.distributed_simulation.world_agent 1 2 agent2
+      - "8080:80"
