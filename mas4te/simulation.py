@@ -68,13 +68,13 @@ def read_forecasts(start, end, id: int = 0, randomize: bool = False):
 def init(world: World, n=1):
     # set start and end date
     start = datetime(2023, 1, 1, hour=13)
-    end = datetime(2023, 12, 8, hour=13)
+    end = datetime(2023, 1, 8, hour=13)
 
     # create index
     index = FastIndex(start, end, freq="h")
 
     # set simulation ID
-    simulation_id = "mas4te_simulation"
+    simulation_id = "single_auction_demand1_supply1"
 
     # add possible bidding strategies
     world.bidding_strategies["llm_buy_strategy"] = LLMBuyStrategy
@@ -177,11 +177,11 @@ def init(world: World, n=1):
         forecasts = read_forecasts(start, end, id=str(i))
 
         id = "0" + str(i + 1) if i < 9 else str(i + 1)
-        world.add_unit_operator(f"storage_provider_operator_{id}")
+        world.add_unit_operator(f"storage_supply_operator_{id}")
         world.add_unit(
-            id=f"storage_provider_{id}",
+            id=f"storage_supply_{id}",
             unit_type="mas4te",
-            unit_operator_id=f"storage_provider_operator_{id}",
+            unit_operator_id=f"storage_supply_operator_{id}",
             unit_params={
                 "baseline_storage": Storage(id=0, c_rate=1, volume=5, efficiency=0.95),
                 "max_power_charge": 1,  # max 1 kW charge

@@ -23,15 +23,13 @@ class LLMStrategy(BaseStrategy):
         self.baseline_storage = baseline_storage
         self.api_url = llm_api_url
         self.headers = {"Content-Type": "application/json"}
-        self.storages_to_calculate = self.build_storages_to_calculate()
 
-    def build_storages_to_calculate(self):
+    def build_storages_to_calculate(self, baseline_storage: Storage):
         """Builds a list of storage volumes to calculate worth for.
 
         Returns:
             list[Storage]: List of Storage objects with different volumes.
         """
-        # Example: Create storages with volumes from 0 to 1000 in steps of 100
         storages = [
             Storage(id=i, volume=i, c_rate=1, efficiency=0.95) for i in range(1, 15)
         ]
@@ -40,7 +38,10 @@ class LLMStrategy(BaseStrategy):
             Storage(id=i, volume=i * 5, c_rate=1, efficiency=0.95) for i in range(3, 11)
         ]
 
-        return storages
+        if baseline_storage.volume > 0:
+            return [stor for stor in storages if stor.volume <= baseline_storage.volume]
+        else:
+            return storages
 
     def run_prompt(
         self, prompt: str, model="Mistral-7B-Instruct-v0.3-Q4_K_M", max_tokens=1000
@@ -77,6 +78,9 @@ class LLMBuyStrategy(LLMStrategy):
         """
 
         bids = []
+        storages_to_calculate = self.build_storages_to_calculate(
+            baseline_storage=unit.baseline_storage
+        )
 
         # iterate over each product (which is only one in phase 1)
         for product in product_tuples:
@@ -85,7 +89,7 @@ class LLMBuyStrategy(LLMStrategy):
 
             storages_worth = buc.calculate_multiple_storage_worth(
                 baseline_storage=unit.baseline_storage,
-                storages_to_calculate=self.storages_to_calculate,
+                storages_to_calculate=storages_to_calculate,
                 demand=unit.forecaster["energy_demand"].as_pd_series(
                     start=start, end=end
                 ),
@@ -170,6 +174,9 @@ class LLMSellStrategy(LLMStrategy):
         """
 
         bids = []
+        storages_to_calculate = self.build_storages_to_calculate(
+            baseline_storage=unit.baseline_storage
+        )
 
         # iterate over each product (which is only one in phase 1)
         for product in product_tuples:
@@ -178,7 +185,7 @@ class LLMSellStrategy(LLMStrategy):
 
             storages_worth = buc.calculate_multiple_storage_worth(
                 baseline_storage=unit.baseline_storage,
-                storages_to_calculate=self.storages_to_calculate,
+                storages_to_calculate=storages_to_calculate,
                 demand=unit.forecaster["energy_demand"].as_pd_series(
                     start=start, end=end
                 ),
