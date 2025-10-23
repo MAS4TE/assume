@@ -70,7 +70,7 @@ services:
       PGADMIN_DEFAULT_PASSWORD: a
       PGADMIN_LISTEN_PORT: 80
       PGADMIN_CONFIG_UPGRADE_CHECK_ENABLED: "False"
-    # volumes:
-    #   - ./data/pgadmin:/var/lib/pgadmin
+    volumes:
+      - ./data/pgadmin:/var/lib/pgadmin
     ports:
       - "8080:80"
