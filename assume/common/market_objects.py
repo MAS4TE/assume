@@ -74,6 +74,7 @@ class MarketProduct:
         eligible_lambda_function (eligible_lambda | None): lambda function which determines if an agent is eligible to trade this product
     """
 
+    id: int
     duration: rd | rr.rrule
     count: int
     first_delivery: rd = rd()

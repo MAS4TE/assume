@@ -65,7 +65,7 @@ def read_forecasts(start, end, id: int = 0, randomize: bool = False):
     }
 
 
-def init(world: World, n=1):
+def init(world: World, db_uri: str, n=1):
     # set start and end date
     start = datetime(2023, 1, 1, hour=13)
     end = datetime(2023, 1, 8, hour=13)
@@ -74,7 +74,22 @@ def init(world: World, n=1):
     index = FastIndex(start, end, freq="h")
 
     # set simulation ID
-    simulation_id = "single_auction_demand1_supply1"
+    simulation_id = "1"
+
+    try:
+        existing_ids = pd.read_sql("SELECT simulation FROM sim_config", db_uri)[
+            "simulation"
+        ].values
+    except Exception:
+        existing_ids = []
+
+    if simulation_id in existing_ids:
+        msg = f"Simulation with ID {simulation_id} already exists! Overwrite (Y/n)? "
+        user_input = input(msg)
+        if user_input == "y" or user_input == "":
+            pass
+        else:
+            return
 
     # add possible bidding strategies
     world.bidding_strategies["llm_buy_strategy"] = LLMBuyStrategy
@@ -92,9 +107,34 @@ def init(world: World, n=1):
     )
 
     # create market design
+    market_id = "BatteryMarket"
+    market_products = [
+        MarketProduct(
+            id=0,
+            duration=timedelta(hours=24 * 7),
+            count=1,
+            first_delivery=timedelta(hours=12),
+        )
+    ]
+    for mp in market_products:
+        try:
+            existing_ids = pd.read_sql("SELECT id FROM market_products", db_uri)[
+                "id"
+            ].values
+        except Exception:
+            existing_ids = []
+
+        if mp.id in existing_ids:
+            msg = f"Market Product with ID {mp.id} already exists! Overwrite (Y/n)? "
+            user_input = input(msg)
+            if user_input == "y" or user_input == "":
+                pass
+            else:
+                return
+
     marketdesign = [
         MarketConfig(
-            market_id="BatteryMarket",
+            market_id=market_id,
             opening_hours=rr.rrule(
                 rr.WEEKLY,
                 interval=1,
@@ -105,15 +145,7 @@ def init(world: World, n=1):
             opening_duration=timedelta(hours=1),
             market_mechanism="battery_clearing",
             product_type="power",
-            market_products=[
-                MarketProduct(
-                    duration=timedelta(
-                        hours=24 * 7
-                    ),  # each product (storage rent) will be 1 week
-                    count=1,  # we will only trade the next week, not any week after that
-                    first_delivery=timedelta(hours=12),
-                )
-            ],  # delivery will take place 12 hours after market close
+            market_products=market_products,
             additional_fields=["c_rate"],
             param_dict={"allowed_c_rates": [1]},
             minimum_bid_price=0,
@@ -210,10 +242,36 @@ def init(world: World, n=1):
             ),
         )
 
+    sim_config = pd.DataFrame(
+        data={
+            "simulation": simulation_id,
+            "start": start,
+            "end": end,
+            "n_supply_units": n_supply_units,
+            "n_demand_units": n_demand_units,
+            "market_id": market_id,
+            "product_ids": [[prod.id for prod in market_products]],
+        },
+        index=[0],
+    )
+    sim_config.to_sql("sim_config", db_uri, if_exists="append")
+
+    for prod in market_products:
+        df = pd.DataFrame(
+            data={
+                "id": prod.id,
+                "duration_d": prod.duration.days,
+                "count": prod.count,
+                "first_delivery_h": prod.first_delivery.seconds / 3600,
+            },
+            index=[0],
+        )
+        df.to_sql("market_products", db_uri, if_exists="append")
+
 
 if __name__ == "__main__":
     db_uri = "postgresql://assume:assume@localhost:5432/assume"
     world = World(database_uri=db_uri, log_level="ERROR")
-    init(world)
+    init(world, db_uri)
     logging.getLogger("gurobipy").setLevel(logging.WARNING)  # suppress gurobipy logs
     world.run()
