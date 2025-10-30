@@ -3,10 +3,11 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 import logging
-import random
 from datetime import datetime, timedelta
 
+import numpy as np
 import pandas as pd
+import psycopg2
 from battery_utility_calculator import Storage
 from dateutil import rrule as rr
 from mas4te_bidding_strategy import LLMBuyStrategy, LLMSellStrategy
@@ -17,10 +18,11 @@ from assume.common.fast_pandas import FastIndex
 from assume.common.forecasts import NaiveForecast
 from assume.common.market_objects import MarketConfig, MarketProduct
 
+np.random.seed(seed=42)
 log = logging.getLogger(__name__)
 
 
-def read_forecasts(start, end, id: int = 0, randomize: bool = False):
+def read_forecasts():
     """Reads the forecasts for a specific time period and unit ID.
 
     Args:
@@ -32,49 +34,35 @@ def read_forecasts(start, end, id: int = 0, randomize: bool = False):
     Returns:
         dict: A dictionary containing the forecasts for the specified time period and unit ID.
     """
-    if randomize:
-        val = random.randint(0, 29)
-        id = "0" + str(val) if val < 10 else str(val)
-
     demand_forecast = pd.read_csv(
-        "./example_data/demand.csv", index_col=0, parse_dates=True
-    )["demand" + "_" + id][start:end]
-    wholesale_price = pd.read_csv(
-        "./example_data/prices.csv", index_col=0, parse_dates=True
-    )["wholesale"][start:end]
-    eeg_price = pd.read_csv("./example_data/prices.csv", index_col=0, parse_dates=True)[
-        "eeg"
-    ][start:end]
-    community_price = pd.read_csv(
-        "./example_data/prices.csv", index_col=0, parse_dates=True
-    )["community"][start:end]
-    grid_price = pd.read_csv(
-        "./example_data/prices.csv", index_col=0, parse_dates=True
-    )["grid"][start:end]
-    solar_gen = pd.read_csv("./example_data/solar.csv", index_col=0, parse_dates=True)[
-        "solar" + "_" + id
-    ][start:end]
+        "./analysis_data/profile_timeseries.csv", index_col=0
+    ).set_index("datetime")
+    prices = pd.read_csv("./analysis_data/prices.csv", index_col=0).set_index(
+        "datetime"
+    )
+    solar_gen = pd.read_csv("./analysis_data/solar.csv", index_col=0).set_index(
+        "datetime"
+    )
 
     return {
         "demand": demand_forecast,
-        "wholesale_price": wholesale_price,
-        "eeg_price": eeg_price,
-        "community_price": community_price,
-        "grid_price": grid_price,
+        "prices": prices,
         "solar_gen": solar_gen,
     }
 
 
 def init(world: World, db_uri: str, n=1):
+    con = psycopg2.connect(db_uri)
+
     # set start and end date
     start = datetime(2023, 1, 1, hour=13)
-    end = datetime(2023, 1, 8, hour=13)
+    end = datetime(2023, 12, 31, hour=23)
 
     # create index
     index = FastIndex(start, end, freq="h")
 
     # set simulation ID
-    simulation_id = "1"
+    simulation_id = "2"
 
     try:
         existing_ids = pd.read_sql("SELECT simulation FROM sim_config", db_uri)[
@@ -124,13 +112,13 @@ def init(world: World, db_uri: str, n=1):
         except Exception:
             existing_ids = []
 
-        if mp.id in existing_ids:
-            msg = f"Market Product with ID {mp.id} already exists! Overwrite (Y/n)? "
-            user_input = input(msg)
-            if user_input == "y" or user_input == "":
-                pass
-            else:
-                return
+        # if mp.id in existing_ids:
+        #     msg = f"Market Product with ID {mp.id} already exists! Overwrite (Y/n)? "
+        #     user_input = input(msg)
+        #     if user_input == "y" or user_input == "":
+        #         pass
+        #     else:
+        #         return
 
     marketdesign = [
         MarketConfig(
@@ -161,66 +149,73 @@ def init(world: World, db_uri: str, n=1):
     for market_config in marketdesign:
         world.add_market(mo_id, market_config)
 
+    forecasts = read_forecasts()
+    log.info("Read timeseries")
+
     ##################################################
     # SET THE NUMBER OF DEMAND AND SUPPLY UNITS HERE #
     ##################################################
-    n_demand_units = 1
-    n_supply_units = 1
+    n_supply_units = 8
+    n_demand_units = 8
+
+    supply_profiles = np.random.randint(low=0, high=119, size=n_supply_units)
+    demand_profiles = np.random.randint(low=0, high=119, size=n_demand_units)
+
+    # redo if we have duplicate IDs
+    while len(supply_profiles) != len(set(supply_profiles)):
+        supply_profiles = np.random.randint(low=0, high=119, size=n_supply_units)
+    while len(demand_profiles) != len(set(demand_profiles)):
+        demand_profiles = np.random.randint(low=0, high=119, size=n_demand_units)
 
     # actually create and add the demand units
-    for i in range(n_demand_units):
-        # we need a demand, solar generation and price forecast to build bids
-        # so we have to read them in before providing them to the forecaster of the unit
-        # -----------------------------------------------------------------------------------
-        # you can provide an ID (0 to 29) here and the forecast for that ID will be read in
-        # or you can set "randomize" to True, to choose a random forecast
-        forecasts = read_forecasts(start, end, id=str(i), randomize=False)
-
-        id = "0" + str(i + 1) if i < 9 else str(i + 1)
-        world.add_unit_operator(id=f"storage_demand_operator_{id}")
+    for demand_id in demand_profiles:
+        world.add_unit_operator(id=f"storage_demand_operator_{demand_id}")
         world.add_unit(
-            id=f"storage_demand_{id}",
+            id=f"storage_demand_{demand_id}",
             unit_type="mas4te",
-            unit_operator_id=f"storage_demand_operator_{id}",
+            unit_operator_id=f"storage_demand_operator_{demand_id}",
             unit_params={
-                "baseline_storage": Storage(
-                    id=0, c_rate=1, volume=0, efficiency=1
-                ),  # unit has no storage
-                "max_power": 1000,  # max 1.000 kW demand
-                "min_power": 0,  # no minimum demand
+                "baseline_storage": Storage(id=0, c_rate=1, volume=0, efficiency=1),
+                "max_power": 1000,
+                "min_power": 0,
                 "bidding_strategies": {"BatteryMarket": "llm_buy_strategy"},
                 "technology": "demand",
             },
             forecaster=NaiveForecast(
                 index=index,
                 demand=0,
-                energy_demand=forecasts["demand"],
-                wholesale_price=forecasts["wholesale_price"],
-                eeg_price=forecasts["eeg_price"],
-                community_price=forecasts["community_price"],
-                grid_price=forecasts["grid_price"],
-                solar_gen=forecasts["solar_gen"],
+                energy_demand=forecasts["demand"].query(f"profile_id == {demand_id}")[
+                    "load_kw"
+                ],
+                wholesale_price=forecasts["prices"]["wholesale"],
+                eeg_price=forecasts["prices"]["eeg"],
+                community_price=forecasts["prices"]["community"],
+                grid_price=forecasts["prices"]["grid"],
+                solar_gen=forecasts["solar_gen"].query(f"profile_id == {demand_id}")[
+                    "solar_gen_kw"
+                ],
             ),
         )
 
     # actually create and add the supply units
-    for i in range(n_supply_units):
-        # same as above - set an ID or set randomize to True
-        forecasts = read_forecasts(start, end, id=str(i))
+    for supply_id in supply_profiles:
+        storage_volume = np.random.normal(loc=8.5422, scale=3.155)
+        storage_volume = 0 if storage_volume < 0 else storage_volume
 
-        id = "0" + str(i + 1) if i < 9 else str(i + 1)
-        world.add_unit_operator(f"storage_supply_operator_{id}")
+        world.add_unit_operator(f"storage_supply_operator_{supply_id}")
         world.add_unit(
-            id=f"storage_supply_{id}",
+            id=f"storage_supply_{supply_id}",
             unit_type="mas4te",
-            unit_operator_id=f"storage_supply_operator_{id}",
+            unit_operator_id=f"storage_supply_operator_{supply_id}",
             unit_params={
-                "baseline_storage": Storage(id=0, c_rate=1, volume=5, efficiency=0.95),
-                "max_power_charge": 1,  # max 1 kW charge
-                "max_power_discharge": 1,  # max 1 kW discharge
-                "max_soc": 20,  # max 20 kWh of storage capacity (equal to baseline)
-                "min_soc": 0,  # no mimimum fill level
-                "efficiency_charge": 0.975,  # charge and discharge to combine to 95% efficiency
+                "baseline_storage": Storage(
+                    id=0, c_rate=1, volume=storage_volume, efficiency=0.95
+                ),
+                "max_power_charge": 1,
+                "max_power_discharge": 1,
+                "max_soc": 20,
+                "min_soc": 0,
+                "efficiency_charge": 0.975,
                 "efficiency_discharge": 0.975,
                 "bidding_strategies": {"BatteryMarket": "llm_sell_strategy"},
                 "technology": "battery_storage",
@@ -228,17 +223,16 @@ def init(world: World, db_uri: str, n=1):
             forecaster=NaiveForecast(
                 index=index,
                 demand=0,
-                availability=1,  # always available
-                energy_demand=forecasts["demand"],
-                solar_gen=forecasts["solar_gen"],
-                wholesale_price=forecasts["wholesale_price"],
-                eeg_price=forecasts["eeg_price"],
-                community_price=forecasts["community_price"],
-                grid_price=forecasts["grid_price"],
-                # no battery demand, fuel price or CO2 price for this simulation
-                battery_demand=0,  # no battery demand
-                fuel_price=0,  # no fuel price
-                co2_price=0,  # no CO2 price
+                energy_demand=forecasts["demand"].query(f"profile_id == {supply_id}")[
+                    "load_kw"
+                ],
+                wholesale_price=forecasts["prices"]["wholesale"],
+                eeg_price=forecasts["prices"]["eeg"],
+                community_price=forecasts["prices"]["community"],
+                grid_price=forecasts["prices"]["grid"],
+                solar_gen=forecasts["solar_gen"].query(f"profile_id == {supply_id}")[
+                    "solar_gen_kw"
+                ],
             ),
         )
 
@@ -254,6 +248,12 @@ def init(world: World, db_uri: str, n=1):
         },
         index=[0],
     )
+    try:
+        cur = con.cursor()
+        cur.execute(f"DELETE FROM sim_config WHERE simulation = '{simulation_id}'")
+        con.commit()
+    except psycopg2.errors.UndefinedTable:
+        con.rollback()
     sim_config.to_sql("sim_config", db_uri, if_exists="append")
 
     for prod in market_products:
@@ -266,6 +266,12 @@ def init(world: World, db_uri: str, n=1):
             },
             index=[0],
         )
+        try:
+            cur = con.cursor()
+            cur.execute(f"DELETE FROM market_products WHERE id = {prod.id}")
+            con.commit()
+        except psycopg2.errors.UndefinedTable:
+            con.rollback()
         df.to_sql("market_products", db_uri, if_exists="append")
 
 
@@ -273,5 +279,11 @@ if __name__ == "__main__":
     db_uri = "postgresql://assume:assume@localhost:5432/assume"
     world = World(database_uri=db_uri, log_level="ERROR")
     init(world, db_uri)
+    start = datetime.now().replace(microsecond=0)
     logging.getLogger("gurobipy").setLevel(logging.WARNING)  # suppress gurobipy logs
     world.run()
+    end = datetime.now().replace(microsecond=0)
+    msg = (
+        f"Started on {start.isoformat()}, ended on {end.isoformat()}, took {end-start}"
+    )
+    print(msg)
