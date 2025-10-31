@@ -162,12 +162,12 @@ def init(
     n_demand_units = n_demand_units
 
     if int(n_supply_units) > 50:
-        supply_profiles = list(range(n_supply_units))
+        supply_profiles = list(range(int(n_supply_units)))
     else:
         supply_profiles = np.random.randint(low=0, high=119, size=int(n_supply_units))
 
     if int(n_demand_units) > 50:
-        demand_profiles = list(range(n_demand_units))
+        demand_profiles = list(range(int(n_demand_units)))
     else:
         demand_profiles = np.random.randint(low=0, high=119, size=int(n_demand_units))
 
