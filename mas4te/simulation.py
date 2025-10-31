@@ -161,8 +161,15 @@ def init(
     n_supply_units = n_supply_units
     n_demand_units = n_demand_units
 
-    supply_profiles = np.random.randint(low=0, high=119, size=int(n_supply_units))
-    demand_profiles = np.random.randint(low=0, high=119, size=int(n_demand_units))
+    if n_supply_units > 50:
+        supply_profiles = list(range(n_supply_units))
+    else:
+        supply_profiles = np.random.randint(low=0, high=119, size=int(n_supply_units))
+
+    if n_demand_units > 50:
+        demand_profiles = list(range(n_demand_units))
+    else:
+        demand_profiles = np.random.randint(low=0, high=119, size=int(n_demand_units))
 
     # redo if we have duplicate IDs
     while len(supply_profiles) != len(set(supply_profiles)):
