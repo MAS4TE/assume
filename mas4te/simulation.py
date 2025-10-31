@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
+import argparse
 import logging
 from datetime import datetime, timedelta
 
@@ -51,7 +52,9 @@ def read_forecasts():
     }
 
 
-def init(world: World, db_uri: str, n=1):
+def init(
+    world: World, db_uri: str, sim_id: str, n_supply_units: int, n_demand_units: int
+):
     con = psycopg2.connect(db_uri)
 
     # set start and end date
@@ -62,7 +65,7 @@ def init(world: World, db_uri: str, n=1):
     index = FastIndex(start, end, freq="h")
 
     # set simulation ID
-    simulation_id = "2"
+    simulation_id = f"{sim_id}"
 
     try:
         existing_ids = pd.read_sql("SELECT simulation FROM sim_config", db_uri)[
@@ -155,8 +158,8 @@ def init(world: World, db_uri: str, n=1):
     ##################################################
     # SET THE NUMBER OF DEMAND AND SUPPLY UNITS HERE #
     ##################################################
-    n_supply_units = 8
-    n_demand_units = 8
+    n_supply_units = n_supply_units
+    n_demand_units = n_demand_units
 
     supply_profiles = np.random.randint(low=0, high=119, size=n_supply_units)
     demand_profiles = np.random.randint(low=0, high=119, size=n_demand_units)
@@ -275,15 +278,37 @@ def init(world: World, db_uri: str, n=1):
         df.to_sql("market_products", db_uri, if_exists="append")
 
 
-if __name__ == "__main__":
-    db_uri = "postgresql://assume:assume@localhost:5432/assume"
-    world = World(database_uri=db_uri, log_level="ERROR")
-    init(world, db_uri)
-    start = datetime.now().replace(microsecond=0)
+def main():
     logging.getLogger("gurobipy").setLevel(logging.WARNING)  # suppress gurobipy logs
+
+    parser = argparse.ArgumentParser(description="parser")
+    parser.add_argument("--sim-id")
+    parser.add_argument("--n-supply")
+    parser.add_argument("--n-demand")
+
+    args = parser.parse_args()
+
+    db_uri = "postgresql://assume:assume@localhost:5432/assume"
+    world = World(
+        database_uri=db_uri,
+        log_level="ERROR",
+    )
+    init(
+        world,
+        db_uri,
+        sim_id=args.sim_id,
+        n_supply=args.n_supply,
+        n_demand=args.n_demand,
+    )
+
+    start = datetime.now().replace(microsecond=0)
     world.run()
     end = datetime.now().replace(microsecond=0)
     msg = (
         f"Started on {start.isoformat()}, ended on {end.isoformat()}, took {end-start}"
     )
     print(msg)
+
+
+if __name__ == "__main__":
+    main()
