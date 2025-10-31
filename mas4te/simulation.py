@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: ASSUME Developers
+# SPDX-FileCopyrightText: MAS$TE Developers
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
