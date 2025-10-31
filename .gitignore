@@ -31,7 +31,10 @@ share/python-wheels/
 *.egg
 MANIFEST
 
+/mas4te/analysis_data/
 /data/
+
+*.ipynb
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
