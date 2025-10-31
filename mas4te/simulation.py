@@ -297,8 +297,8 @@ def main():
         world,
         db_uri,
         sim_id=args.sim_id,
-        n_supply=args.n_supply,
-        n_demand=args.n_demand,
+        n_supply_units=args.n_supply,
+        n_demand_units=args.n_demand,
     )
 
     start = datetime.now().replace(microsecond=0)
