@@ -161,14 +161,14 @@ def init(
     n_supply_units = n_supply_units
     n_demand_units = n_demand_units
 
-    supply_profiles = np.random.randint(low=0, high=119, size=n_supply_units)
-    demand_profiles = np.random.randint(low=0, high=119, size=n_demand_units)
+    supply_profiles = np.random.randint(low=0, high=119, size=int(n_supply_units))
+    demand_profiles = np.random.randint(low=0, high=119, size=int(n_demand_units))
 
     # redo if we have duplicate IDs
     while len(supply_profiles) != len(set(supply_profiles)):
-        supply_profiles = np.random.randint(low=0, high=119, size=n_supply_units)
+        supply_profiles = np.random.randint(low=0, high=119, size=int(n_supply_units))
     while len(demand_profiles) != len(set(demand_profiles)):
-        demand_profiles = np.random.randint(low=0, high=119, size=n_demand_units)
+        demand_profiles = np.random.randint(low=0, high=119, size=int(n_demand_units))
 
     # actually create and add the demand units
     for demand_id in demand_profiles:
