@@ -4,9 +4,9 @@
 
 import argparse
 import logging
+import random
 from datetime import datetime, timedelta
 
-import numpy as np
 import pandas as pd
 import psycopg2
 from battery_utility_calculator import Storage
@@ -19,7 +19,7 @@ from assume.common.fast_pandas import FastIndex
 from assume.common.forecasts import NaiveForecast
 from assume.common.market_objects import MarketConfig, MarketProduct
 
-np.random.seed(seed=42)
+# np.random.seed(seed=42)
 log = logging.getLogger(__name__)
 
 
@@ -35,14 +35,28 @@ def read_forecasts():
     Returns:
         dict: A dictionary containing the forecasts for the specified time period and unit ID.
     """
-    demand_forecast = pd.read_csv(
-        "./analysis_data/profile_timeseries.csv", index_col=0
-    ).set_index("datetime")
-    prices = pd.read_csv("./analysis_data/prices.csv", index_col=0).set_index(
-        "datetime"
+    demand_forecast = pd.read_csv("./analysis_data/profile_timeseries.csv", index_col=0)
+    demand_forecast["datetime"] = pd.to_datetime(
+        demand_forecast["datetime"]
+    ).dt.tz_convert(None)
+    demand_forecast = (
+        demand_forecast[demand_forecast["profile_id"] == 0]
+        .set_index("datetime")
+        .resample("h")
+        .mean()
     )
-    solar_gen = pd.read_csv("./analysis_data/solar.csv", index_col=0).set_index(
-        "datetime"
+
+    prices = pd.read_csv("./analysis_data/prices.csv", index_col=0)
+    prices["datetime"] = pd.to_datetime(prices["datetime"]).dt.tz_convert(None)
+    prices = prices.set_index("datetime").resample("h").mean()
+
+    solar_gen = pd.read_csv("./analysis_data/solar.csv", index_col=0)
+    solar_gen["datetime"] = pd.to_datetime(solar_gen["datetime"]).dt.tz_convert(None)
+    solar_gen = (
+        solar_gen[solar_gen["profile_id"] == 0]
+        .set_index("datetime")
+        .resample("h")
+        .mean()
     )
 
     return {
@@ -53,7 +67,11 @@ def read_forecasts():
 
 
 def init(
-    world: World, db_uri: str, sim_id: str, n_supply_units: int, n_demand_units: int
+    world: World,
+    db_uri: str | None = None,
+    sim_id: str = "-1",
+    n_supply_units: int = -1,
+    n_demand_units: int = -1,
 ):
     con = psycopg2.connect(db_uri)
 
@@ -67,20 +85,20 @@ def init(
     # set simulation ID
     simulation_id = f"{sim_id}"
 
-    try:
-        existing_ids = pd.read_sql("SELECT simulation FROM sim_config", db_uri)[
-            "simulation"
-        ].values
-    except Exception:
-        existing_ids = []
+    # try:
+    #     existing_ids = pd.read_sql("SELECT simulation FROM sim_config", db_uri)[
+    #         "simulation"
+    #     ].values
+    # except Exception:
+    #     existing_ids = []
 
-    if simulation_id in existing_ids:
-        msg = f"Simulation with ID {simulation_id} already exists! Overwrite (Y/n)? "
-        user_input = input(msg)
-        if user_input == "y" or user_input == "":
-            pass
-        else:
-            return
+    # if simulation_id in existing_ids:
+    #     msg = f"Simulation with ID {simulation_id} already exists! Overwrite (Y/n)? "
+    #     user_input = input(msg)
+    #     if user_input == "y" or user_input == "":
+    #         pass
+    #     else:
+    #         return
 
     # add possible bidding strategies
     world.bidding_strategies["llm_buy_strategy"] = LLMBuyStrategy
@@ -107,21 +125,21 @@ def init(
             first_delivery=timedelta(hours=12),
         )
     ]
-    for mp in market_products:
-        try:
-            existing_ids = pd.read_sql("SELECT id FROM market_products", db_uri)[
-                "id"
-            ].values
-        except Exception:
-            existing_ids = []
+    # for mp in market_products:
+    #     try:
+    #         existing_ids = pd.read_sql("SELECT id FROM market_products", db_uri)[
+    #             "id"
+    #         ].values
+    #     except Exception:
+    #         existing_ids = []
 
-        # if mp.id in existing_ids:
-        #     msg = f"Market Product with ID {mp.id} already exists! Overwrite (Y/n)? "
-        #     user_input = input(msg)
-        #     if user_input == "y" or user_input == "":
-        #         pass
-        #     else:
-        #         return
+    # if mp.id in existing_ids:
+    #     msg = f"Market Product with ID {mp.id} already exists! Overwrite (Y/n)? "
+    #     user_input = input(msg)
+    #     if user_input == "y" or user_input == "":
+    #         pass
+    #     else:
+    #         return
 
     marketdesign = [
         MarketConfig(
@@ -155,37 +173,20 @@ def init(
     forecasts = read_forecasts()
     log.info("Read timeseries")
 
-    ##################################################
-    # SET THE NUMBER OF DEMAND AND SUPPLY UNITS HERE #
-    ##################################################
-    n_supply_units = n_supply_units
-    n_demand_units = n_demand_units
-
-    if int(n_supply_units) > 50:
-        supply_profiles = list(range(int(n_supply_units)))
-    else:
-        supply_profiles = np.random.randint(low=0, high=119, size=int(n_supply_units))
-
-    if int(n_demand_units) > 50:
-        demand_profiles = list(range(int(n_demand_units)))
-    else:
-        demand_profiles = np.random.randint(low=0, high=119, size=int(n_demand_units))
-
-    # redo if we have duplicate IDs
-    while len(supply_profiles) != len(set(supply_profiles)):
-        supply_profiles = np.random.randint(low=0, high=119, size=int(n_supply_units))
-    while len(demand_profiles) != len(set(demand_profiles)):
-        demand_profiles = np.random.randint(low=0, high=119, size=int(n_demand_units))
+    # supply_profiles = np.random.randint(low=0, high=119, size=int(n_supply_units))
+    # demand_profiles = np.random.randint(low=0, high=239, size=int(n_demand_units))
+    supply_profiles = random.sample(range(119), k=int(n_supply_units))
+    demand_profiles = random.sample(range(239), k=int(n_demand_units))
 
     # actually create and add the demand units
-    for demand_id in demand_profiles:
-        world.add_unit_operator(id=f"storage_demand_operator_{demand_id}")
+    for i, demand_id in enumerate(demand_profiles):
+        world.add_unit_operator(id=f"storage_demand_operator_{i}")
         world.add_unit(
-            id=f"storage_demand_{demand_id}",
+            id=f"storage_demand_{i}",
             unit_type="mas4te",
-            unit_operator_id=f"storage_demand_operator_{demand_id}",
+            unit_operator_id=f"storage_demand_operator_{i}",
             unit_params={
-                "baseline_storage": Storage(id=0, c_rate=1, volume=0, efficiency=1),
+                "baseline_storage": Storage(id=0, c_rate=1, volume=0),
                 "max_power": 1000,
                 "min_power": 0,
                 "bidding_strategies": {"BatteryMarket": "llm_buy_strategy"},
@@ -208,18 +209,23 @@ def init(
         )
 
     # actually create and add the supply units
-    for supply_id in supply_profiles:
-        storage_volume = np.random.normal(loc=8.5422, scale=3.155)
-        storage_volume = 0 if storage_volume < 0 else storage_volume
+    for i, supply_id in enumerate(supply_profiles):
+        # storage_volume = np.random.normal(loc=8.5422, scale=3.155)
+        # storage_volume = 0 if storage_volume < 0 else storage_volume
+        storage_volume = 5
 
-        world.add_unit_operator(f"storage_supply_operator_{supply_id}")
+        world.add_unit_operator(f"storage_supply_operator_{i}")
         world.add_unit(
-            id=f"storage_supply_{supply_id}",
+            id=f"storage_supply_{i}",
             unit_type="mas4te",
-            unit_operator_id=f"storage_supply_operator_{supply_id}",
+            unit_operator_id=f"storage_supply_operator_{i}",
             unit_params={
                 "baseline_storage": Storage(
-                    id=0, c_rate=1, volume=storage_volume, efficiency=0.95
+                    id=0,
+                    c_rate=1,
+                    volume=storage_volume,
+                    charge_efficiency=0.98,
+                    discharge_efficiency=0.98,
                 ),
                 "max_power_charge": 1,
                 "max_power_discharge": 1,
@@ -253,6 +259,8 @@ def init(
             "end": end,
             "n_supply_units": n_supply_units,
             "n_demand_units": n_demand_units,
+            "choosen_supply_units": [list(supply_profiles)],
+            "choosen_demand_units": [list(demand_profiles)],
             "market_id": market_id,
             "product_ids": [[prod.id for prod in market_products]],
         },
