@@ -2,12 +2,15 @@
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
+import logging
+
 import battery_utility_calculator as buc
-import requests
 from battery_utility_calculator import Storage
 
 from assume.common.base import BaseStrategy, BaseUnit, SupportsMinMaxCharge
 from assume.common.market_objects import MarketConfig, Orderbook, Product
+
+logger = logging.getLogger(__name__)
 
 
 class LLMStrategy(BaseStrategy):
@@ -18,11 +21,9 @@ class LLMStrategy(BaseStrategy):
         llm_api_url (str): The URL of the LLM API to use for generating bids.
     """
 
-    def __init__(self, llm_api_url=None, baseline_storage=0, *args, **kwargs):
+    def __init__(self, baseline_storage=0, *args, **kwargs):
         super().__init__()
         self.baseline_storage = baseline_storage
-        self.api_url = llm_api_url
-        self.headers = {"Content-Type": "application/json"}
 
     def build_storages_to_calculate(self, baseline_storage: Storage):
         """Builds a list of storage volumes to calculate worth for.
@@ -31,26 +32,20 @@ class LLMStrategy(BaseStrategy):
             list[Storage]: List of Storage objects with different volumes.
         """
         storages = [
-            Storage(id=i, volume=i, c_rate=1, efficiency=0.95) for i in range(1, 15)
-        ]
-
-        storages += [
-            Storage(id=i, volume=i * 5, c_rate=1, efficiency=0.95) for i in range(3, 11)
+            Storage(
+                id=i,
+                volume=i / 2,
+                c_rate=1,
+                charge_efficiency=0.98,
+                discharge_efficiency=0.98,
+            )
+            for i in range(11)
         ]
 
         if baseline_storage.volume > 0:
             return [stor for stor in storages if stor.volume <= baseline_storage.volume]
         else:
             return storages
-
-    def run_prompt(
-        self, prompt: str, model="Mistral-7B-Instruct-v0.3-Q4_K_M", max_tokens=1000
-    ):
-        data = {"model": model, "prompt": prompt, "max_tokens": max_tokens}
-        response = requests.post(self.api_url, headers=self.headers, json=data)
-        response.raise_for_status()
-        result = response.json()
-        return result.get("choices", [{}])[0].get("text", "")
 
 
 class LLMBuyStrategy(LLMStrategy):
