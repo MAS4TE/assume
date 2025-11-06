@@ -63,7 +63,7 @@ def init(
 ):
     con = psycopg2.connect(db_uri)
 
-    # set start and end date
+    # set start and end date for simulation
     start = datetime(2023, 1, 1, hour=13)
     end = datetime(2023, 12, 31, hour=23)
 
