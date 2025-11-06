@@ -39,12 +39,6 @@ def read_forecasts():
     demand_forecast["datetime"] = pd.to_datetime(
         demand_forecast["datetime"]
     ).dt.tz_convert(None)
-    demand_forecast = (
-        demand_forecast[demand_forecast["profile_id"] == 0]
-        .set_index("datetime")
-        .resample("h")
-        .mean()
-    )
 
     prices = pd.read_csv("./analysis_data/prices.csv", index_col=0)
     prices["datetime"] = pd.to_datetime(prices["datetime"]).dt.tz_convert(None)
@@ -52,12 +46,6 @@ def read_forecasts():
 
     solar_gen = pd.read_csv("./analysis_data/solar.csv", index_col=0)
     solar_gen["datetime"] = pd.to_datetime(solar_gen["datetime"]).dt.tz_convert(None)
-    solar_gen = (
-        solar_gen[solar_gen["profile_id"] == 0]
-        .set_index("datetime")
-        .resample("h")
-        .mean()
-    )
 
     return {
         "demand": demand_forecast,
@@ -180,6 +168,7 @@ def init(
 
     # actually create and add the demand units
     for i, demand_id in enumerate(demand_profiles):
+        energy_demand_id = demand_id if demand_id < 119 else demand_id - 119
         world.add_unit_operator(id=f"storage_demand_operator_{i}")
         world.add_unit(
             id=f"storage_demand_{i}",
@@ -195,9 +184,9 @@ def init(
             forecaster=NaiveForecast(
                 index=index,
                 demand=0,
-                energy_demand=forecasts["demand"].query(f"profile_id == {demand_id}")[
-                    "load_kw"
-                ],
+                energy_demand=forecasts["demand"].query(
+                    f"profile_id == {energy_demand_id}"
+                )["load_kw"],
                 wholesale_price=forecasts["prices"]["wholesale"],
                 eeg_price=forecasts["prices"]["eeg"],
                 community_price=forecasts["prices"]["community"],
@@ -213,6 +202,8 @@ def init(
         # storage_volume = np.random.normal(loc=8.5422, scale=3.155)
         # storage_volume = 0 if storage_volume < 0 else storage_volume
         storage_volume = 5
+
+        energy_supply_id = supply_id if supply_id < 119 else supply_id - 119
 
         world.add_unit_operator(f"storage_supply_operator_{i}")
         world.add_unit(
@@ -239,9 +230,9 @@ def init(
             forecaster=NaiveForecast(
                 index=index,
                 demand=0,
-                energy_demand=forecasts["demand"].query(f"profile_id == {supply_id}")[
-                    "load_kw"
-                ],
+                energy_demand=forecasts["demand"].query(
+                    f"profile_id == {energy_supply_id}"
+                )["load_kw"],
                 wholesale_price=forecasts["prices"]["wholesale"],
                 eeg_price=forecasts["prices"]["eeg"],
                 community_price=forecasts["prices"]["community"],
