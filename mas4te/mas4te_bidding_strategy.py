@@ -3,14 +3,20 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 import logging
+import os
 
 import battery_utility_calculator as buc
+import pandas as pd
 from battery_utility_calculator import Storage
+from dotenv import load_dotenv
+from sqlalchemy.exc import ProgrammingError
 
 from assume.common.base import BaseStrategy, BaseUnit, SupportsMinMaxCharge
 from assume.common.market_objects import MarketConfig, Orderbook, Product
 
+load_dotenv()
 logger = logging.getLogger(__name__)
+DB_URI = os.getenv("DB_URI")
 
 
 class LLMStrategy(BaseStrategy):
@@ -47,6 +53,58 @@ class LLMStrategy(BaseStrategy):
         else:
             return storages
 
+    def get_storages_worth_from_db(
+        self,
+        profile_id: int,
+        product_start: str,
+        product_end: str,
+        hours_per_timestep: float | int,
+        c_rate: float | int | None = None,
+        charge_efficiency: float | int | None = None,
+        discharge_efficiency: float | int | None = None,
+    ) -> pd.DataFrame:
+        sql = f"""
+            SELECT
+                volume,
+                worth
+            FROM
+                storage_values.values
+            WHERE
+                product_start = '{product_start}'
+            AND
+                product_end = '{product_end}'
+            AND
+                hours_per_timestep = {hours_per_timestep}
+            AND
+                profile_id = {profile_id}
+        """
+        try:
+            volume_values = pd.read_sql(sql, con=DB_URI)
+            logger.error(volume_values)
+            logger.error(sql)
+        except ProgrammingError:
+            return pd.DataFrame()
+
+        return volume_values
+
+    def write_volumes_worth_to_db(
+        self,
+        profile_id: int,
+        product_start: str,
+        product_end: str,
+        hours_per_timestep: float | int,
+        storages_worth: pd.DataFrame,
+    ) -> None:
+        storages_worth["product_start"] = product_start
+        storages_worth["product_end"] = product_end
+        storages_worth["hours_per_timestep"] = hours_per_timestep
+        storages_worth["profile_id"] = profile_id
+        storages_worth["costs"] = storages_worth["costs"].astype(float)
+
+        storages_worth.to_sql(
+            name="values", con=DB_URI, schema="storage_values", if_exists="append"
+        )
+
 
 class LLMBuyStrategy(LLMStrategy):
     """A strategy that uses a Large Language Model (LLM) for a storage buyer."""
@@ -82,29 +140,46 @@ class LLMBuyStrategy(LLMStrategy):
             start = product[0]
             end = product[1]
 
-            storages_worth = buc.calculate_multiple_storage_worth(
-                baseline_storage=unit.baseline_storage,
-                storages_to_calculate=storages_to_calculate,
-                demand=unit.forecaster["energy_demand"].as_pd_series(
-                    start=start, end=end
-                ),
-                solar_generation=unit.forecaster["solar_gen"].as_pd_series(
-                    start=start, end=end
-                ),
-                grid_prices=unit.forecaster["grid_price"].as_pd_series(
-                    start=start, end=end
-                ),
-                eeg_prices=unit.forecaster["eeg_price"].as_pd_series(
-                    start=start, end=end
-                ),
-                community_market_prices=unit.forecaster["community_price"].as_pd_series(
-                    start=start, end=end
-                ),
-                wholesale_market_prices=unit.forecaster["wholesale_price"].as_pd_series(
-                    start=start, end=end
-                ),
-                solver="gurobi",
+            storages_worth = self.get_storages_worth_from_db(
+                product_start=start,
+                product_end=end,
+                hours_per_timestep=0.25,
+                profile_id=unit.profile_id,
             )
+
+            if storages_worth.empty:
+                storages_worth = buc.calculate_multiple_storage_worth(
+                    baseline_storage=unit.baseline_storage,
+                    storages_to_calculate=storages_to_calculate,
+                    demand=unit.forecaster["energy_demand"].as_pd_series(
+                        start=start, end=end
+                    ),
+                    solar_generation=unit.forecaster["solar_gen"].as_pd_series(
+                        start=start, end=end
+                    ),
+                    grid_prices=unit.forecaster["grid_price"].as_pd_series(
+                        start=start, end=end
+                    ),
+                    eeg_prices=unit.forecaster["eeg_price"].as_pd_series(
+                        start=start, end=end
+                    ),
+                    community_market_prices=unit.forecaster[
+                        "community_price"
+                    ].as_pd_series(start=start, end=end),
+                    wholesale_market_prices=unit.forecaster[
+                        "wholesale_price"
+                    ].as_pd_series(start=start, end=end),
+                    solver="gurobi",
+                    hours_per_timestep=0.25,
+                )
+                self.write_volumes_worth_to_db(
+                    profile_id=unit.profile_id,
+                    product_start=start,
+                    product_end=end,
+                    hours_per_timestep=0.25,
+                    storages_worth=storages_worth,
+                )
+
             bidding_curve = buc.calculate_bidding_curve(
                 volumes_worth=storages_worth,
                 buy_or_sell_side="buyer",
@@ -178,29 +253,46 @@ class LLMSellStrategy(LLMStrategy):
             start = product[0]
             end = product[1]
 
-            storages_worth = buc.calculate_multiple_storage_worth(
-                baseline_storage=unit.baseline_storage,
-                storages_to_calculate=storages_to_calculate,
-                demand=unit.forecaster["energy_demand"].as_pd_series(
-                    start=start, end=end
-                ),
-                solar_generation=unit.forecaster["solar_gen"].as_pd_series(
-                    start=start, end=end
-                ),
-                grid_prices=unit.forecaster["grid_price"].as_pd_series(
-                    start=start, end=end
-                ),
-                eeg_prices=unit.forecaster["eeg_price"].as_pd_series(
-                    start=start, end=end
-                ),
-                community_market_prices=unit.forecaster["community_price"].as_pd_series(
-                    start=start, end=end
-                ),
-                wholesale_market_prices=unit.forecaster["wholesale_price"].as_pd_series(
-                    start=start, end=end
-                ),
-                solver="gurobi",
+            storages_worth = self.get_storages_worth_from_db(
+                product_start=start,
+                product_end=end,
+                hours_per_timestep=0.25,
+                profile_id=unit.profile_id,
             )
+
+            if storages_worth.empty:
+                storages_worth = buc.calculate_multiple_storage_worth(
+                    baseline_storage=unit.baseline_storage,
+                    storages_to_calculate=storages_to_calculate,
+                    demand=unit.forecaster["energy_demand"].as_pd_series(
+                        start=start, end=end
+                    ),
+                    solar_generation=unit.forecaster["solar_gen"].as_pd_series(
+                        start=start, end=end
+                    ),
+                    grid_prices=unit.forecaster["grid_price"].as_pd_series(
+                        start=start, end=end
+                    ),
+                    eeg_prices=unit.forecaster["eeg_price"].as_pd_series(
+                        start=start, end=end
+                    ),
+                    community_market_prices=unit.forecaster[
+                        "community_price"
+                    ].as_pd_series(start=start, end=end),
+                    wholesale_market_prices=unit.forecaster[
+                        "wholesale_price"
+                    ].as_pd_series(start=start, end=end),
+                    solver="gurobi",
+                    hours_per_timestep=0.25,
+                )
+                self.write_volumes_worth_to_db(
+                    profile_id=unit.profile_id,
+                    product_start=start,
+                    product_end=end,
+                    hours_per_timestep=0.25,
+                    storages_worth=storages_worth,
+                )
+
             bidding_curve = buc.calculate_bidding_curve(
                 volumes_worth=storages_worth,
                 buy_or_sell_side="seller",

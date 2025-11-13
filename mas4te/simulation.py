@@ -35,7 +35,7 @@ def read_forecasts():
     Returns:
         dict: A dictionary containing the forecasts for the specified time period and unit ID.
     """
-    demand_forecast = pd.read_csv("./analysis_data/profile_timeseries.csv", index_col=0)
+    demand_forecast = pd.read_hdf("./analysis_data/profile_timeseries.h5")
     demand_forecast["datetime"] = pd.to_datetime(
         demand_forecast["datetime"]
     ).dt.tz_convert(None)
@@ -52,6 +52,19 @@ def read_forecasts():
         "prices": prices,
         "solar_gen": solar_gen,
     }
+
+
+def choose_supply_profiles(n: int) -> list[int]:
+    profiles = pd.read_csv("./analysis_data/profiles.csv", index_col=0)
+    possible_ids = (
+        profiles[profiles["building_type"].str.contains("single") & profiles["has_pv"]][
+            "profile_id"
+        ]
+        .unique()
+        .tolist()
+    )
+
+    return random.choices(possible_ids, k=n)
 
 
 def init(
@@ -163,8 +176,8 @@ def init(
 
     # supply_profiles = np.random.randint(low=0, high=119, size=int(n_supply_units))
     # demand_profiles = np.random.randint(low=0, high=239, size=int(n_demand_units))
-    supply_profiles = random.sample(range(119), k=int(n_supply_units))
-    demand_profiles = random.sample(range(239), k=int(n_demand_units))
+    demand_profiles = random.sample(range(119), k=int(n_demand_units))
+    supply_profiles = choose_supply_profiles(n_supply_units)
 
     # actually create and add the demand units
     for i, demand_id in enumerate(demand_profiles):
@@ -175,6 +188,7 @@ def init(
             unit_type="mas4te",
             unit_operator_id=f"storage_demand_operator_{i}",
             unit_params={
+                "profile_id": demand_id,
                 "baseline_storage": Storage(id=0, c_rate=1, volume=0),
                 "max_power": 1000,
                 "min_power": 0,
@@ -203,7 +217,7 @@ def init(
         # storage_volume = 0 if storage_volume < 0 else storage_volume
         storage_volume = 5
 
-        energy_supply_id = supply_id if supply_id < 119 else supply_id - 119
+        energy_demand_id = supply_id if supply_id < 119 else supply_id - 119
 
         world.add_unit_operator(f"storage_supply_operator_{i}")
         world.add_unit(
@@ -211,6 +225,7 @@ def init(
             unit_type="mas4te",
             unit_operator_id=f"storage_supply_operator_{i}",
             unit_params={
+                "profile_id": supply_id,
                 "baseline_storage": Storage(
                     id=0,
                     c_rate=1,
@@ -231,15 +246,13 @@ def init(
                 index=index,
                 demand=0,
                 energy_demand=forecasts["demand"].query(
-                    f"profile_id == {energy_supply_id}"
+                    f"profile_id == {energy_demand_id}"
                 )["load_kw"],
                 wholesale_price=forecasts["prices"]["wholesale"],
                 eeg_price=forecasts["prices"]["eeg"],
                 community_price=forecasts["prices"]["community"],
                 grid_price=forecasts["prices"]["grid"],
-                solar_gen=forecasts["solar_gen"].query(f"profile_id == {supply_id}")[
-                    "solar_gen_kw"
-                ],
+                solar_gen=pd.Series(0, index=forecasts["prices"].index),
             ),
         )
 
@@ -289,8 +302,8 @@ def main():
 
     parser = argparse.ArgumentParser(description="parser")
     parser.add_argument("--sim-id")
-    parser.add_argument("--n-supply")
-    parser.add_argument("--n-demand")
+    parser.add_argument("--n-supply", type=int)
+    parser.add_argument("--n-demand", type=int)
 
     args = parser.parse_args()
 

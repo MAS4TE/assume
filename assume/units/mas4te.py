@@ -24,6 +24,7 @@ class MAS4TEUnit(BaseUnit):
         technology: str,
         bidding_strategies: dict,
         forecaster: Forecaster,
+        profile_id: int,
         baseline_storage: Storage,
         model_context: list[str] | None = None,
         previous_bids: list[Order] | None = None,
@@ -44,6 +45,7 @@ class MAS4TEUnit(BaseUnit):
             **kwargs,
         )
 
+        self.profile_id = profile_id
         self.baseline_storage = baseline_storage
         self.model_context = model_context
         self.previous_bids = previous_bids
