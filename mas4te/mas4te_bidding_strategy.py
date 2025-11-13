@@ -83,6 +83,8 @@ class LLMStrategy(BaseStrategy):
         except ProgrammingError:
             return pd.DataFrame()
 
+        volume_values.drop_duplicates(inplace=True)
+
         return volume_values
 
     def write_volumes_worth_to_db(
