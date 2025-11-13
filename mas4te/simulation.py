@@ -5,6 +5,7 @@
 import argparse
 import logging
 import random
+import time
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -73,6 +74,7 @@ def init(
     sim_id: str = "-1",
     n_supply_units: int = -1,
     n_demand_units: int = -1,
+    random_sleep: bool = True,
 ):
     con = psycopg2.connect(db_uri)
 
@@ -173,6 +175,12 @@ def init(
 
     forecasts = read_forecasts()
     log.info("Read timeseries")
+
+    if random_sleep:
+        sleep_time = random.randint(0, 100)
+        log.info(f"Sleeping for {sleep_time} seconds")
+
+        time.sleep(sleep_time)
 
     # supply_profiles = np.random.randint(low=0, high=119, size=int(n_supply_units))
     # demand_profiles = np.random.randint(low=0, high=239, size=int(n_demand_units))
@@ -310,6 +318,7 @@ def main():
     parser.add_argument("--sim-id")
     parser.add_argument("--n-supply", type=int)
     parser.add_argument("--n-demand", type=int)
+    parser.add_argument("--random-sleep", action="store_true", default=False)
 
     args = parser.parse_args()
 
@@ -324,6 +333,7 @@ def main():
         sim_id=args.sim_id,
         n_supply_units=args.n_supply,
         n_demand_units=args.n_demand,
+        random_sleep=args.random_sleep,
     )
 
     start = datetime.now().replace(microsecond=0)
