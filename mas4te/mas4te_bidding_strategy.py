@@ -80,8 +80,6 @@ class LLMStrategy(BaseStrategy):
         """
         try:
             volume_values = pd.read_sql(sql, con=DB_URI)
-            logger.error(volume_values)
-            logger.error(sql)
         except ProgrammingError:
             return pd.DataFrame()
 
