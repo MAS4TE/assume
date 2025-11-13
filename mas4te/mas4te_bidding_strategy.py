@@ -189,7 +189,7 @@ class LLMBuyStrategy(LLMStrategy):
                         "start_time": product[0],
                         "end_time": product[1],
                         "only_hours": product[2],
-                        "price": row["marginal_price"],
+                        "price": row["marginal_price_per_kwh"],
                         "volume": -row["volume"],
                         "c_rate": 1,
                     }
@@ -302,7 +302,7 @@ class LLMSellStrategy(LLMStrategy):
                         "start_time": product[0],
                         "end_time": product[1],
                         "only_hours": product[2],
-                        "price": row["marginal_price"],
+                        "price": row["marginal_price_per_kwh"],
                         "volume": row["volume"],
                         "c_rate": 1,
                     }
