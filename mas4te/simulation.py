@@ -189,7 +189,13 @@ def init(
             unit_operator_id=f"storage_demand_operator_{i}",
             unit_params={
                 "profile_id": demand_id,
-                "baseline_storage": Storage(id=0, c_rate=1, volume=0),
+                "baseline_storage": Storage(
+                    id=0,
+                    c_rate=1,
+                    volume=0,
+                    charge_efficiency=0.98,
+                    discharge_efficiency=0.98,
+                ),
                 "max_power": 1000,
                 "min_power": 0,
                 "bidding_strategies": {"BatteryMarket": "llm_buy_strategy"},
