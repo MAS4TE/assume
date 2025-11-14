@@ -140,17 +140,26 @@ class LLMBuyStrategy(LLMStrategy):
             start = product[0]
             end = product[1]
 
-            storages_worth = self.get_storages_worth_from_db(
+            # get existing worths from DB
+            existing_storages_worth = self.get_storages_worth_from_db(
                 product_start=start,
                 product_end=end,
                 hours_per_timestep=0.25,
                 profile_id=unit.profile_id,
             )
 
-            if storages_worth.empty:
-                storages_worth = buc.calculate_multiple_storage_worth(
+            # find missing storage volumes that need to be calculated
+            missing_storages = [
+                s
+                for s in storages_to_calculate
+                if s.volume not in existing_storages_worth["volume"].values
+            ]
+
+            # calculate missing storage worths
+            if len(missing_storages) > 0:
+                new_storages_worth = buc.calculate_multiple_storage_worth(
                     baseline_storage=unit.baseline_storage,
-                    storages_to_calculate=storages_to_calculate,
+                    storages_to_calculate=missing_storages,
                     demand=unit.forecaster["energy_demand"].as_pd_series(
                         start=start, end=end
                     ),
@@ -172,17 +181,25 @@ class LLMBuyStrategy(LLMStrategy):
                     solver="gurobi",
                     hours_per_timestep=0.25,
                 )
+
+                # write newly calculated worths to DB
                 self.write_volumes_worth_to_db(
                     profile_id=unit.profile_id,
                     product_start=start,
                     product_end=end,
                     hours_per_timestep=0.25,
-                    storages_worth=storages_worth,
+                    storages_worth=new_storages_worth,
                 )
 
+                # combine existing with new worths
+                storages_worth = pd.concat(
+                    [existing_storages_worth, new_storages_worth], ignore_index=True
+                )
+
+            # calculate bidding curve
             bidding_curve = buc.calculate_bidding_curve(
                 volumes_worth=storages_worth,
-                buy_or_sell_side="buyer",
+                buy_or_sell_side="seller",
             )
 
             for idx, row in bidding_curve.iterrows():
@@ -253,17 +270,26 @@ class LLMSellStrategy(LLMStrategy):
             start = product[0]
             end = product[1]
 
-            storages_worth = self.get_storages_worth_from_db(
+            # get existing worths from DB
+            existing_storages_worth = self.get_storages_worth_from_db(
                 product_start=start,
                 product_end=end,
                 hours_per_timestep=0.25,
                 profile_id=unit.profile_id,
             )
 
-            if storages_worth.empty:
-                storages_worth = buc.calculate_multiple_storage_worth(
+            # find missing storage volumes that need to be calculated
+            missing_storages = [
+                s
+                for s in storages_to_calculate
+                if s.volume not in existing_storages_worth["volume"].values
+            ]
+
+            # calculate missing storage worths
+            if len(missing_storages) > 0:
+                new_storages_worth = buc.calculate_multiple_storage_worth(
                     baseline_storage=unit.baseline_storage,
-                    storages_to_calculate=storages_to_calculate,
+                    storages_to_calculate=missing_storages,
                     demand=unit.forecaster["energy_demand"].as_pd_series(
                         start=start, end=end
                     ),
@@ -285,14 +311,22 @@ class LLMSellStrategy(LLMStrategy):
                     solver="gurobi",
                     hours_per_timestep=0.25,
                 )
+
+                # write newly calculated worths to DB
                 self.write_volumes_worth_to_db(
                     profile_id=unit.profile_id,
                     product_start=start,
                     product_end=end,
                     hours_per_timestep=0.25,
-                    storages_worth=storages_worth,
+                    storages_worth=new_storages_worth,
                 )
 
+                # combine existing with new worths
+                storages_worth = pd.concat(
+                    [existing_storages_worth, new_storages_worth], ignore_index=True
+                )
+
+            # calculate bidding curve
             bidding_curve = buc.calculate_bidding_curve(
                 volumes_worth=storages_worth,
                 buy_or_sell_side="seller",
