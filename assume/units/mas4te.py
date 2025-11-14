@@ -26,6 +26,7 @@ class MAS4TEUnit(BaseUnit):
         forecaster: Forecaster,
         profile_id: int,
         baseline_storage: Storage,
+        max_bidding_volume: float | int = 5,
         model_context: list[str] | None = None,
         previous_bids: list[Order] | None = None,
         previous_accepted_bids: list[Order] | None = None,
@@ -47,6 +48,7 @@ class MAS4TEUnit(BaseUnit):
 
         self.profile_id = profile_id
         self.baseline_storage = baseline_storage
+        self.max_bidding_volume = max_bidding_volume
         self.model_context = model_context
         self.previous_bids = previous_bids
         self.previous_accepted_bids = previous_accepted_bids

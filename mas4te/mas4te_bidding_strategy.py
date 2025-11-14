@@ -31,7 +31,11 @@ class LLMStrategy(BaseStrategy):
         super().__init__()
         self.baseline_storage = baseline_storage
 
-    def build_storages_to_calculate(self, baseline_storage: Storage):
+    def build_storages_to_calculate(
+        self,
+        baseline_storage: Storage,
+        max_storage_volume: float = 5,
+    ) -> list[Storage]:
         """Builds a list of storage volumes to calculate worth for.
 
         Returns:
@@ -45,7 +49,7 @@ class LLMStrategy(BaseStrategy):
                 charge_efficiency=0.98,
                 discharge_efficiency=0.98,
             )
-            for i in range(11)
+            for i in range(max_storage_volume * 2 + 1)
         ]
 
         if baseline_storage.volume > 0:
@@ -132,7 +136,8 @@ class LLMBuyStrategy(LLMStrategy):
 
         bids = []
         storages_to_calculate = self.build_storages_to_calculate(
-            baseline_storage=unit.baseline_storage
+            baseline_storage=unit.baseline_storage,
+            max_storage_volume=unit.maxbidding_volume,
         )
         max_vol_to_calc = max([s.volume for s in storages_to_calculate])
 
@@ -268,7 +273,8 @@ class LLMSellStrategy(LLMStrategy):
 
         bids = []
         storages_to_calculate = self.build_storages_to_calculate(
-            baseline_storage=unit.baseline_storage
+            baseline_storage=unit.baseline_storage,
+            max_storage_volume=unit.max_bidding_volume,
         )
         max_vol_to_calc = max([s.volume for s in storages_to_calculate])
 
