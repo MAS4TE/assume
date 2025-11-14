@@ -97,7 +97,7 @@ supply_total_welfare = pd.read_sql(
         GROUP BY simulation, start_time
     """,
     con=DB_URI,
-    params={"pattern": "%base%"},
+    params={"pattern": "%supply%"},
 )
 supply_total_welfare_line = px.line(
     supply_total_welfare, "start_time", "welfare", color="simulation"
