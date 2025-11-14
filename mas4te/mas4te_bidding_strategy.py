@@ -137,7 +137,7 @@ class LLMBuyStrategy(LLMStrategy):
         bids = []
         storages_to_calculate = self.build_storages_to_calculate(
             baseline_storage=unit.baseline_storage,
-            max_storage_volume=unit.maxbidding_volume,
+            max_storage_volume=unit.max_bidding_volume,
         )
         max_vol_to_calc = max([s.volume for s in storages_to_calculate])
 
