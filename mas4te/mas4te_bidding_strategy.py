@@ -206,6 +206,8 @@ class LLMBuyStrategy(LLMStrategy):
                 storages_worth = pd.concat(
                     [existing_storages_worth, new_storages_worth], ignore_index=True
                 )
+            else:
+                storages_worth = existing_storages_worth.copy()
 
             # calculate bidding curve
             bidding_curve = buc.calculate_bidding_curve(
@@ -343,6 +345,8 @@ class LLMSellStrategy(LLMStrategy):
                 storages_worth = pd.concat(
                     [existing_storages_worth, new_storages_worth], ignore_index=True
                 )
+            else:
+                storages_worth = existing_storages_worth.copy()
 
             # calculate bidding curve
             bidding_curve = buc.calculate_bidding_curve(
