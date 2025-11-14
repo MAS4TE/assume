@@ -34,7 +34,7 @@ base_clearing_price_box.update_layout(
     yaxis_title="Simulation",
     xaxis_range=[0, 170],
 )
-st.plotly_chart(base_clearing_price_box)
+st.plotly_chart(base_clearing_price_box, key="base_box")
 
 base_clearing_price_line = px.line(
     base_clearing_prices,
@@ -48,7 +48,7 @@ base_clearing_price_line.update_layout(
     xaxis_title="Date",
     yaxis_title="Clearing price in ct./kWh",
 )
-st.plotly_chart(base_clearing_price_line)
+st.plotly_chart(base_clearing_price_line, key="base_line")
 
 st.header("Supply surplus simulation - 50 demand & 50 supply units with 10kWh storage")
 supply_sur_clearing_prices = pd.read_sql(
@@ -73,7 +73,7 @@ supply_sur_clearing_price_box.update_layout(
     yaxis_title="Simulation",
     xaxis_range=[0, 170],
 )
-st.plotly_chart(supply_sur_clearing_price_box)
+st.plotly_chart(supply_sur_clearing_price_box, key="supply_sur_box")
 
 supply_sur_clearing_price_line = px.line(
     supply_sur_clearing_prices,
@@ -87,7 +87,7 @@ supply_sur_clearing_price_line.update_layout(
     xaxis_title="Date",
     yaxis_title="Clearing price in ct./kWh",
 )
-st.plotly_chart(supply_sur_clearing_price_line)
+st.plotly_chart(supply_sur_clearing_price_line, key="supply_sur_line")
 
 st.header("Demand surplus simulation - 50 demand & 50 supply units with 2.5kWh storage")
 demand_sur_clearing_prices = pd.read_sql(
@@ -112,7 +112,7 @@ demand_sur_clearing_price_box.update_layout(
     yaxis_title="Simulation",
     xaxis_range=[0, 170],
 )
-st.plotly_chart(demand_sur_clearing_price_box)
+st.plotly_chart(demand_sur_clearing_price_box, key="demand_sur_box")
 
 demand_sur_clearing_price_line = px.line(
     demand_sur_clearing_prices,
@@ -126,7 +126,7 @@ demand_sur_clearing_price_line.update_layout(
     xaxis_title="Date",
     yaxis_title="Clearing price in ct./kWh",
 )
-st.plotly_chart(demand_sur_clearing_price_line)
+st.plotly_chart(demand_sur_clearing_price_line, key="demand_sur_line")
 
 ##
 # fig = go.Figure(base_clearing_price_line.data + supply_sur_clearing_price_line.data)
