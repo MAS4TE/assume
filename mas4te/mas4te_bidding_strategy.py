@@ -134,6 +134,7 @@ class LLMBuyStrategy(LLMStrategy):
         storages_to_calculate = self.build_storages_to_calculate(
             baseline_storage=unit.baseline_storage
         )
+        max_vol_to_calc = max([s.volume for s in storages_to_calculate])
 
         # iterate over each product (which is only one in phase 1)
         for product in product_tuples:
@@ -147,6 +148,11 @@ class LLMBuyStrategy(LLMStrategy):
                 hours_per_timestep=0.25,
                 profile_id=unit.profile_id,
             )
+
+            # remove storages too large
+            existing_storages_worth = existing_storages_worth[
+                existing_storages_worth["volume"] <= max_vol_to_calc
+            ].reset_index(drop=True)
 
             # find missing storage volumes that need to be calculated
             missing_storages = [
@@ -264,6 +270,7 @@ class LLMSellStrategy(LLMStrategy):
         storages_to_calculate = self.build_storages_to_calculate(
             baseline_storage=unit.baseline_storage
         )
+        max_vol_to_calc = max([s.volume for s in storages_to_calculate])
 
         # iterate over each product (which is only one in phase 1)
         for product in product_tuples:
@@ -277,6 +284,11 @@ class LLMSellStrategy(LLMStrategy):
                 hours_per_timestep=0.25,
                 profile_id=unit.profile_id,
             )
+
+            # remove storages too large
+            existing_storages_worth = existing_storages_worth[
+                existing_storages_worth["volume"] <= max_vol_to_calc
+            ].reset_index(drop=True)
 
             # find missing storage volumes that need to be calculated
             missing_storages = [
