@@ -32,7 +32,7 @@ base_clearing_price_box.update_layout(
     title="Clearing prices over whole simulation",
     xaxis_title="Price in ct./kWh",
     yaxis_title="Simulation",
-    xaxis_range=[0, 170],
+    xaxis_range=[0, 40],
 )
 st.plotly_chart(base_clearing_price_box, key="base_box")
 
@@ -71,7 +71,7 @@ supply_sur_clearing_price_box.update_layout(
     title="Clearing prices over whole simulation",
     xaxis_title="Price in ct./kWh",
     yaxis_title="Simulation",
-    xaxis_range=[0, 170],
+    xaxis_range=[0, 40],
 )
 st.plotly_chart(supply_sur_clearing_price_box, key="supply_sur_box")
 
@@ -110,7 +110,7 @@ demand_sur_clearing_price_box.update_layout(
     title="Clearing prices over whole simulation",
     xaxis_title="Price in ct./kWh",
     yaxis_title="Simulation",
-    xaxis_range=[0, 170],
+    xaxis_range=[0, 40],
 )
 st.plotly_chart(demand_sur_clearing_price_box, key="demand_sur_box")
 
