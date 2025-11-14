@@ -49,7 +49,7 @@ class LLMStrategy(BaseStrategy):
                 charge_efficiency=0.98,
                 discharge_efficiency=0.98,
             )
-            for i in range(max_storage_volume * 2 + 1)
+            for i in range(int(max_storage_volume * 2 + 1))
         ]
 
         if baseline_storage.volume > 0:
