@@ -151,7 +151,12 @@ class WriteOutput(Role):
         # Iterate through each table
         for table_name in table_names:
             # ignore spatial_ref_sys table
-            if table_name in ["spatial_ref_sys", "market_products", "sim_config"]:
+            if table_name in [
+                "spatial_ref_sys",
+                "market_products",
+                "sim_config",
+                "values",
+            ]:
                 continue
             # only delete rl_params and rl_meta during the first episode of learning
             if table_name in ["rl_params", "rl_grad_params", "rl_meta"] and not (
