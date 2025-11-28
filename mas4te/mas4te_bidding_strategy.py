@@ -172,30 +172,36 @@ class LLMBuyStrategy(LLMStrategy):
 
             # calculate missing storage worths
             if len(missing_storages) > 0:
-                new_storages_worth = buc.calculate_multiple_storage_worth(
-                    baseline_storage=unit.baseline_storage,
-                    storages_to_calculate=missing_storages,
-                    demand=unit.forecaster["energy_demand"].as_pd_series(
-                        start=start, end=end
-                    ),
-                    solar_generation=unit.forecaster["solar_gen"].as_pd_series(
-                        start=start, end=end
-                    ),
-                    grid_prices=unit.forecaster["grid_price"].as_pd_series(
-                        start=start, end=end
-                    ),
-                    eeg_prices=unit.forecaster["eeg_price"].as_pd_series(
-                        start=start, end=end
-                    ),
-                    community_market_prices=unit.forecaster[
-                        "community_price"
-                    ].as_pd_series(start=start, end=end),
-                    wholesale_market_prices=unit.forecaster[
-                        "wholesale_price"
-                    ].as_pd_series(start=start, end=end),
-                    solver="gurobi",
-                    hours_per_timestep=0.25,
-                )
+                try:
+                    new_storages_worth = buc.calculate_multiple_storage_worth(
+                        baseline_storage=unit.baseline_storage,
+                        storages_to_calculate=missing_storages,
+                        demand=unit.forecaster["energy_demand"].as_pd_series(
+                            start=start, end=end
+                        ),
+                        solar_generation=unit.forecaster["solar_gen"].as_pd_series(
+                            start=start, end=end
+                        ),
+                        grid_prices=unit.forecaster["grid_price"].as_pd_series(
+                            start=start, end=end
+                        ),
+                        eeg_prices=unit.forecaster["eeg_price"].as_pd_series(
+                            start=start, end=end
+                        ),
+                        community_market_prices=unit.forecaster[
+                            "community_price"
+                        ].as_pd_series(start=start, end=end),
+                        wholesale_market_prices=unit.forecaster[
+                            "wholesale_price"
+                        ].as_pd_series(start=start, end=end),
+                        solver="gurobi",
+                        hours_per_timestep=0.25,
+                    )
+                except Exception as e:
+                    logger.error(unit.id)
+                    logger.error(f"{start}, {end}")
+                    logger.error(unit.forecaster["solar_gen"])
+                    logger.error(e)
 
                 # # write newly calculated worths to DB
                 # self.write_volumes_worth_to_db(
@@ -311,30 +317,36 @@ class LLMSellStrategy(LLMStrategy):
 
             # calculate missing storage worths
             if len(missing_storages) > 0:
-                new_storages_worth = buc.calculate_multiple_storage_worth(
-                    baseline_storage=unit.baseline_storage,
-                    storages_to_calculate=missing_storages,
-                    demand=unit.forecaster["energy_demand"].as_pd_series(
-                        start=start, end=end
-                    ),
-                    solar_generation=unit.forecaster["solar_gen"].as_pd_series(
-                        start=start, end=end
-                    ),
-                    grid_prices=unit.forecaster["grid_price"].as_pd_series(
-                        start=start, end=end
-                    ),
-                    eeg_prices=unit.forecaster["eeg_price"].as_pd_series(
-                        start=start, end=end
-                    ),
-                    community_market_prices=unit.forecaster[
-                        "community_price"
-                    ].as_pd_series(start=start, end=end),
-                    wholesale_market_prices=unit.forecaster[
-                        "wholesale_price"
-                    ].as_pd_series(start=start, end=end),
-                    solver="gurobi",
-                    hours_per_timestep=0.25,
-                )
+                try:
+                    new_storages_worth = buc.calculate_multiple_storage_worth(
+                        baseline_storage=unit.baseline_storage,
+                        storages_to_calculate=missing_storages,
+                        demand=unit.forecaster["energy_demand"].as_pd_series(
+                            start=start, end=end
+                        ),
+                        solar_generation=unit.forecaster["solar_gen"].as_pd_series(
+                            start=start, end=end
+                        ),
+                        grid_prices=unit.forecaster["grid_price"].as_pd_series(
+                            start=start, end=end
+                        ),
+                        eeg_prices=unit.forecaster["eeg_price"].as_pd_series(
+                            start=start, end=end
+                        ),
+                        community_market_prices=unit.forecaster[
+                            "community_price"
+                        ].as_pd_series(start=start, end=end),
+                        wholesale_market_prices=unit.forecaster[
+                            "wholesale_price"
+                        ].as_pd_series(start=start, end=end),
+                        solver="gurobi",
+                        hours_per_timestep=0.25,
+                    )
+                except Exception as e:
+                    logger.error(unit.id)
+                    logger.error(f"{start}, {end}")
+                    logger.error(unit.forecaster["solar_gen"])
+                    logger.error(e)
 
                 # # write newly calculated worths to DB
                 # self.write_volumes_worth_to_db(
