@@ -75,6 +75,7 @@ def init(
     n_supply_units: int = -1,
     n_demand_units: int = -1,
     random_sleep: bool = True,
+    solar_increase: float = 0,
 ):
     con = psycopg2.connect(db_uri)
 
@@ -175,6 +176,9 @@ def init(
 
     forecasts = read_forecasts()
     log.info("Read timeseries")
+
+    if solar_increase != 0:
+        forecasts["solar_gen"]["solar_gen_kw"] *= 1 + solar_increase / 100
 
     if random_sleep:
         sleep_time = random.randint(0, 100)
@@ -320,6 +324,7 @@ def main():
     parser.add_argument("--sim-id")
     parser.add_argument("--n-supply", type=int)
     parser.add_argument("--n-demand", type=int)
+    parser.add_argument("--solar-increase", type=int)
     parser.add_argument("--random-sleep", action="store_true", default=False)
 
     args = parser.parse_args()
@@ -336,6 +341,7 @@ def main():
         n_supply_units=args.n_supply,
         n_demand_units=args.n_demand,
         random_sleep=args.random_sleep,
+        solar_increase=args.solar_increase,
     )
 
     start = datetime.now().replace(microsecond=0)
