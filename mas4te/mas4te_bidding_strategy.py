@@ -67,8 +67,6 @@ class LLMStrategy(BaseStrategy):
         charge_efficiency: float | int | None = None,
         discharge_efficiency: float | int | None = None,
     ) -> pd.DataFrame:
-        return pd.DataFrame(columns=["volume", "worth"])
-        0 / 0
         sql = f"""
             SELECT
                 volume,
@@ -101,17 +99,15 @@ class LLMStrategy(BaseStrategy):
         hours_per_timestep: float | int,
         storages_worth: pd.DataFrame,
     ) -> None:
-        return
-        0 / 0
         storages_worth["product_start"] = product_start
         storages_worth["product_end"] = product_end
         storages_worth["hours_per_timestep"] = hours_per_timestep
         storages_worth["profile_id"] = profile_id
         storages_worth["costs"] = storages_worth["costs"].astype(float)
 
-        # storages_worth.to_sql(
-        #     name="values", con=DB_URI, schema="storage_values", if_exists="append"
-        # )
+        storages_worth.to_sql(
+            name="values", con=DB_URI, schema="storage_values", if_exists="append"
+        )
 
 
 class LLMBuyStrategy(LLMStrategy):
@@ -203,14 +199,14 @@ class LLMBuyStrategy(LLMStrategy):
                     logger.error(unit.forecaster["solar_gen"])
                     logger.error(e)
 
-                # # write newly calculated worths to DB
-                # self.write_volumes_worth_to_db(
-                #     profile_id=unit.profile_id,
-                #     product_start=start,
-                #     product_end=end,
-                #     hours_per_timestep=0.25,
-                #     storages_worth=new_storages_worth,
-                # )
+                # write newly calculated worths to DB
+                self.write_volumes_worth_to_db(
+                    profile_id=unit.profile_id,
+                    product_start=start,
+                    product_end=end,
+                    hours_per_timestep=0.25,
+                    storages_worth=new_storages_worth,
+                )
 
                 # combine existing with new worths
                 storages_worth = pd.concat(
@@ -348,14 +344,14 @@ class LLMSellStrategy(LLMStrategy):
                     logger.error(unit.forecaster["solar_gen"])
                     logger.error(e)
 
-                # # write newly calculated worths to DB
-                # self.write_volumes_worth_to_db(
-                #     profile_id=unit.profile_id,
-                #     product_start=start,
-                #     product_end=end,
-                #     hours_per_timestep=0.25,
-                #     storages_worth=new_storages_worth,
-                # )
+                # write newly calculated worths to DB
+                self.write_volumes_worth_to_db(
+                    profile_id=unit.profile_id,
+                    product_start=start,
+                    product_end=end,
+                    hours_per_timestep=0.25,
+                    storages_worth=new_storages_worth,
+                )
 
                 # combine existing with new worths
                 storages_worth = pd.concat(
