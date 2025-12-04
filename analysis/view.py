@@ -20,5 +20,10 @@ st.write(
 )
 
 st.header("Following pages are available:")
-st.page_link(page="./pages/clearing_prices.py", label="Clearing prices")
-st.page_link(page="./pages/welfare.py", label="Market welfare")
+st.page_link(page="./pages/01_clearing_prices.py", label="Clearing prices")
+st.page_link(page="./pages/02_welfare.py", label="Market welfare")
+st.page_link(page="./pages/03_scatterplots.py", label="Scatterplots")
+st.page_link(page="./pages/04_bidding_curves.py", label="Bidding curves")
+st.page_link(
+    page="./pages/05_solar_sense.py", label="Sensitiviy analysis on solar generation"
+)

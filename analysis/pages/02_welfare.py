@@ -18,7 +18,7 @@ st.header("Base simulation - 50 demand & 50 supply units with 5kWh storage")
 base_total_welfare = pd.read_sql(
     sql="""
         SELECT
-            SUM(ABS(price - accepted_price)) AS welfare,
+            SUM(ABS(price - accepted_price)) / 100 AS welfare,
             simulation,
             start_time
         FROM market_orders
@@ -46,7 +46,7 @@ st.plotly_chart(base_total_welfare_box)
 base_seller_welfare = pd.read_sql(
     sql="""
         select
-            sum(accepted_price - price) AS welfare,
+            sum(accepted_price - price) / sum(accepted_volume) AS welfare,
             start_time,
             simulation
         from market_orders
@@ -66,7 +66,7 @@ st.plotly_chart(base_seller_welfare_box)
 base_buyer_welfare = pd.read_sql(
     sql="""
         select
-            sum(price - accepted_price) AS welfare,
+            sum(price - accepted_price)  / sum(accepted_volume) AS welfare,
             start_time,
             simulation
         from market_orders
@@ -88,7 +88,7 @@ st.header("Supply surplus simulation - 50 demand & 50 supply units with 10kWh st
 supply_total_welfare = pd.read_sql(
     sql="""
         SELECT
-            SUM(ABS(price - accepted_price)) AS welfare,
+            SUM(ABS(price - accepted_price))  / sum(accepted_volume) AS welfare,
             simulation,
             start_time
         FROM market_orders
@@ -118,7 +118,7 @@ st.plotly_chart(supply_total_welfare_box)
 supply_seller_welfare = pd.read_sql(
     sql="""
         select
-            sum(accepted_price - price) AS welfare,
+            sum(accepted_price - price)  / sum(accepted_volume) AS welfare,
             start_time,
             simulation
         from market_orders
@@ -138,7 +138,7 @@ st.plotly_chart(supply_seller_welfare_box)
 supply_buyer_welfare = pd.read_sql(
     sql="""
         select
-            sum(price - accepted_price) AS welfare,
+            sum(price - accepted_price) / sum(accepted_volume) AS welfare,
             start_time,
             simulation
         from market_orders
@@ -192,7 +192,7 @@ st.plotly_chart(demand_total_welfare_box)
 demand_seller_welfare = pd.read_sql(
     sql="""
         select
-            sum(accepted_price - price) welfare,
+            sum(accepted_price - price) AS welfare,
             start_time,
             simulation
         from market_orders
