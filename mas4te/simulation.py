@@ -76,6 +76,7 @@ def init(
     n_demand_units: int = -1,
     random_sleep: bool = True,
     solar_increase: float = 0,
+    storage_vol: float = 5,
 ):
     con = psycopg2.connect(db_uri)
 
@@ -234,7 +235,7 @@ def init(
     for i, supply_id in enumerate(supply_profiles):
         # storage_volume = np.random.normal(loc=8.5422, scale=3.155)
         # storage_volume = 0 if storage_volume < 0 else storage_volume
-        storage_volume = 5
+        storage_volume = storage_vol
 
         energy_demand_id = supply_id if supply_id < 119 else supply_id - 119
 
@@ -325,6 +326,7 @@ def main():
     parser.add_argument("--n-supply", type=int)
     parser.add_argument("--n-demand", type=int)
     parser.add_argument("--solar-increase", type=int)
+    parser.add_argument("--storage-vol", type=float)
     parser.add_argument("--random-sleep", action="store_true", default=False)
 
     args = parser.parse_args()
@@ -341,6 +343,7 @@ def main():
         n_supply_units=args.n_supply,
         n_demand_units=args.n_demand,
         random_sleep=args.random_sleep,
+        storage_vol=args.storage_vol,
         solar_increase=args.solar_increase,
     )
 
