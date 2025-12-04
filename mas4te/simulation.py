@@ -23,6 +23,8 @@ from assume.common.market_objects import MarketConfig, MarketProduct
 # np.random.seed(seed=42)
 log = logging.getLogger(__name__)
 
+random.seed(42)
+
 
 def read_forecasts():
     """Reads the forecasts for a specific time period and unit ID.
