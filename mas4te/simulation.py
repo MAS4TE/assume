@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 from battery_utility_calculator import Storage
 from dateutil import rrule as rr
-from mas4te_bidding_strategy import LLMBuyStrategy, LLMSellStrategy
+from mas4te_bidding_strategy import LLMStrategy#LLMBuyStrategy, LLMSellStrategy
 from mas4te_clearing_mechanism import BatteryClearing
 
 from assume import World
@@ -67,8 +67,17 @@ def read_forecasts(start, end, id: int = 0, randomize: bool = False):
 
 def init(world: World, n=1):
     # set start and end date
-    start = datetime(2023, 1, 1, hour=13)
-    end = datetime(2023, 12, 8, hour=13)
+    # start = datetime(2023, 1, 1, hour=13)
+    # end = datetime(2023, 1, 29, hour=13)
+    original_start = datetime(2023, 1, 1, hour=13)
+    original_end   = datetime(2023, 1, 29, hour=13)
+
+    SHIFT_WEEKS = 4  # 4 weeks = same weekday
+    shift = timedelta(weeks=SHIFT_WEEKS)
+
+    start = original_start + shift
+    end   = original_end + shift
+    # end = datetime(2023, 12, 8, hour=13)
 
     # create index
     index = FastIndex(start, end, freq="h")
@@ -77,8 +86,8 @@ def init(world: World, n=1):
     simulation_id = "mas4te_simulation"
 
     # add possible bidding strategies
-    world.bidding_strategies["llm_buy_strategy"] = LLMBuyStrategy
-    world.bidding_strategies["llm_sell_strategy"] = LLMSellStrategy
+    # world.bidding_strategies["llm_buy_strategy"] = LLMBuyStrategy
+    world.bidding_strategies["llm_strategy"] = LLMStrategy
 
     # add possible clearing mechanism
     world.clearing_mechanisms["battery_clearing"] = BatteryClearing
@@ -144,22 +153,27 @@ def init(world: World, n=1):
         # or you can set "randomize" to True, to choose a random forecast
         forecasts = read_forecasts(start, end, id=str(i), randomize=False)
 
-        id = "0" + str(i + 1) if i < 9 else str(i + 1)
-        world.add_unit_operator(id=f"storage_demand_operator_{id}")
+        id_buy = "0" + str(i + 1) if i < 9 else str(i + 1)
+        world.add_unit_operator(id=f"storage_demand_operator_{id_buy}")
         world.add_unit(
-            id=f"storage_demand_{id}",
+            id = f"B_{id_buy}",
+            # id = id_buy,
             unit_type="mas4te",
-            unit_operator_id=f"storage_demand_operator_{id}",
+            unit_operator_id=f"storage_demand_operator_{id_buy}",
             unit_params={
                 "baseline_storage": Storage(
-                    id=0, c_rate=1, volume=0, efficiency=1
+                    id=0, c_rate=1, volume=0, charge_efficiency=1
                 ),  # unit has no storage
                 "max_power": 1000,  # max 1.000 kW demand
                 "min_power": 0,  # no minimum demand
                 "bidding_strategies": {
-                    "BatteryMarket": "llm_buy_strategy",
+                    "BatteryMarket": "llm_strategy",
                 },
-                "bidding_params": {"comm_agent_port": 8000 + i},
+                "bidding_params": {
+                    "role":"buy",
+                    # "unit_id" : id_buy,
+                    "market_config": market_config,
+                },
                 "technology": "demand",
             },
             forecaster=NaiveForecast(
@@ -179,22 +193,28 @@ def init(world: World, n=1):
         # same as above - set an ID or set randomize to True
         forecasts = read_forecasts(start, end, id=str(i))
 
-        id = "0" + str(i + 1) if i < 9 else str(i + 1)
-        world.add_unit_operator(f"storage_provider_operator_{id}")
+        id_sell = "0" + str(i + 1) if i < 9 else str(i + 1)
+        # id_sell = id_sell = str(i).zfill(3)
+        world.add_unit_operator(f"storage_provider_operator_{id_sell}")
         world.add_unit(
-            id=f"storage_provider_{id}",
+            # id=f"storage_provider_{id_sell}",
+            id = f"S_{id_buy}",
             unit_type="mas4te",
-            unit_operator_id=f"storage_provider_operator_{id}",
+            unit_operator_id=f"storage_provider_operator_{id_sell}",
             unit_params={
-                "baseline_storage": Storage(id=0, c_rate=1, volume=5, efficiency=0.95),
+                "baseline_storage": Storage(id=0, c_rate=1, volume=5, charge_efficiency=0.95),
                 "max_power_charge": 1,  # max 1 kW charge
                 "max_power_discharge": 1,  # max 1 kW discharge
                 "max_soc": 20,  # max 20 kWh of storage capacity (equal to baseline)
                 "min_soc": 0,  # no mimimum fill level
                 "efficiency_charge": 0.975,  # charge and discharge to combine to 95% efficiency
                 "efficiency_discharge": 0.975,
-                "bidding_strategies": {"BatteryMarket": "llm_sell_strategy"},
-                "bidding_params": {"comm_agent_port": 8000 + n_demand_units + i},
+                "bidding_strategies": {"BatteryMarket": "llm_strategy"},
+                "bidding_params": {
+                    "role":"sell",
+                    # "unit_id" : id_sell,
+                    "market_config": market_config,
+                },
                 "technology": "battery_storage",
             },
             forecaster=NaiveForecast(
@@ -216,7 +236,8 @@ def init(world: World, n=1):
 
 
 if __name__ == "__main__":
-    db_uri = "postgresql://assume:assume@localhost:5432/assume"
+    # db_uri = "postgresql://assume:assume@localhost:5432/assume"
+    db_uri = "sqlite:///mas4te-assume.db"
     world = World(database_uri=db_uri, log_level="ERROR")
     init(world)
     logging.getLogger("gurobipy").setLevel(logging.WARNING)  # suppress gurobipy logs
