@@ -2,21 +2,21 @@
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
-import time
 import json
-import paho.mqtt.client as mqtt
-from datetime import datetime
-from typing import List
+import time
+from typing import list
 
-from assume.common.market_objects import Orderbook, Product, MarketConfig
-from assume.common.base import BaseStrategy, BaseUnit, SupportsMinMaxCharge
+import paho.mqtt.client as mqtt
+
+from assume.common.base import BaseStrategy, BaseUnit
+from assume.common.market_objects import MarketConfig, Orderbook
 
 
 class LLMStrategy(BaseStrategy):
     """
     MQTT-based strategy that can act as buyer or seller.
     """
-    
+
     # Shared MQTT clients across all instances
     _mqtt_clients = {}
 
@@ -35,7 +35,9 @@ class LLMStrategy(BaseStrategy):
         # MQTT setup - reuse client if already exists for this role/unit
         client_key = f"{role}_{unit_id}_{comm_agent_port}"
         if client_key not in LLMStrategy._mqtt_clients:
-            self.client = mqtt.Client(client_id=f"assume_{comm_agent_port}_{role}_{unit_id}")
+            self.client = mqtt.Client(
+                client_id=f"assume_{comm_agent_port}_{role}_{unit_id}"
+            )
             self.client.on_connect = self.on_connect
             self.client.on_message = self.on_message
             self.client.connect("localhost", 1883, 60)
@@ -44,33 +46,43 @@ class LLMStrategy(BaseStrategy):
         else:
             self.client = LLMStrategy._mqtt_clients[client_key]
 
-    def calculate_bids(self, unit, product_tuples: List[tuple], market_config=None, **kwargs):
+    def calculate_bids(
+        self, unit, product_tuples: list[tuple], market_config=None, **kwargs
+    ):
         """
         Wait for a bid from the agent and return it as an Orderbook.
         Each product tuple is (start_time: datetime, end_time: datetime, only_hours)
         """
-        
+
         # Send market open message on first call (when we have products)
         if not self.market_open_sent and self.market_config:
             # Build products payload from actual product_tuples
             products_payload = []
             for p in product_tuples:
                 start_time, end_time, only_hours = p
-                products_payload.append({
-                    "start_time": start_time.isoformat() if hasattr(start_time, 'isoformat') else str(start_time),
-                    "end_time": end_time.isoformat() if hasattr(end_time, 'isoformat') else str(end_time),
-                    "only_hours": only_hours,
-                })
-            
+                products_payload.append(
+                    {
+                        "start_time": start_time.isoformat()
+                        if hasattr(start_time, "isoformat")
+                        else str(start_time),
+                        "end_time": end_time.isoformat()
+                        if hasattr(end_time, "isoformat")
+                        else str(end_time),
+                        "only_hours": only_hours,
+                    }
+                )
+
             # Build market products from config
             market_products_payload = []
             for p in getattr(self.market_config, "market_products", []):
-                market_products_payload.append({
-                    "duration_seconds": p.duration.total_seconds(),
-                    "count": p.count,
-                    "first_delivery": p.first_delivery.total_seconds(),
-                    "only_hours": p.only_hours,
-                })
+                market_products_payload.append(
+                    {
+                        "duration_seconds": p.duration.total_seconds(),
+                        "count": p.count,
+                        "first_delivery": p.first_delivery.total_seconds(),
+                        "only_hours": p.only_hours,
+                    }
+                )
 
             market_open_msg = {
                 "status": "market_open",
@@ -91,13 +103,13 @@ class LLMStrategy(BaseStrategy):
                 self.TOPIC_MARKET_STATUS,
                 json.dumps(market_open_msg, indent=4),
                 qos=1,
-                retain=True
+                retain=True,
             )
             msg_info.wait_for_publish()  # Wait until published
             self.market_open_sent = True
             print(f"Market open message sent by {self.role} strategy")
             time.sleep(0.2)  # Give MQTT time to propagate
-        
+
         # Now wait for bid from agent
         print(f"{self.role.capitalize()} strategy waiting for bid from agent...")
         timeout = 30000
@@ -115,19 +127,19 @@ class LLMStrategy(BaseStrategy):
 
         start_time, end_time, only_hours = product_tuples[0]
         # print(f"DEBUG - Product tuple: ({start_time}, {end_time}, {only_hours})")
-        
+
         vol = bid["quantity"]
-        
+
         if self.role == "buy":
             vol = -vol  # positive for sell, negative for buy
-       
+
         # Always take the first allowed c-rate; currently this is always 1
-        c_rate = market_config.param_dict['allowed_c_rates'][0] 
+        c_rate = market_config.param_dict["allowed_c_rates"][0]
 
         # print("bid id ", int(bid['bid_id']))
 
         order = {
-            "bid_id": bid['bid_id'],
+            "bid_id": bid["bid_id"],
             "start_time": start_time,
             "end_time": end_time,
             "volume": vol,
@@ -137,10 +149,12 @@ class LLMStrategy(BaseStrategy):
             "agent_addr": getattr(unit, "addr", "agent_addr_unknown"),
             "node": getattr(unit, "node", "node_unknown"),
             "only_hours": only_hours if only_hours is not None else [],
-            "c_rate":c_rate,#1, first of allowed c-rates
+            "c_rate": c_rate,  # 1, first of allowed c-rates
         }
 
-        print(f"{self.role.capitalize()} orderbook generated from bid_id {bid.get('bid_id', 0)}")
+        print(
+            f"{self.role.capitalize()} orderbook generated from bid_id {bid.get('bid_id', 0)}"
+        )
         return [order]
 
     def on_connect(self, client, userdata, flags, rc, properties=None):
@@ -158,12 +172,14 @@ class LLMStrategy(BaseStrategy):
             # Acknowledge back to agent
             client.publish(
                 self.TOPIC_RESULTS,
-                json.dumps({
-                    "ack": "bid_received",
-                    "bid_id": bid.get("bid_id", 0),
-                    "price": bid.get("price", 0),
-                    "quantity": bid.get("quantity", 0)
-                })
+                json.dumps(
+                    {
+                        "ack": "bid_received",
+                        "bid_id": bid.get("bid_id", 0),
+                        "price": bid.get("price", 0),
+                        "quantity": bid.get("quantity", 0),
+                    }
+                ),
             )
             print("Confirm bid received")
 
@@ -182,7 +198,7 @@ class LLMStrategy(BaseStrategy):
             orderbook (Orderbook): The orderbook.
         """
 
-        print('in calculate reward')
+        print("in calculate reward")
         self.market_open_sent = False
 
         payload = {
@@ -192,21 +208,20 @@ class LLMStrategy(BaseStrategy):
             "unit_id": getattr(unit, "id", None),
         }
 
-
         # Publish using the existing MQTT client and topic
         if hasattr(self, "client") and hasattr(self, "TOPIC_RESULTS"):
             msg_info = self.client.publish(
                 self.TOPIC_RESULTS,
                 json.dumps(payload, default=str, indent=4),
                 qos=1,
-                retain=False  # rewards are usually transient
+                retain=False,  # rewards are usually transient
             )
             msg_info.wait_for_publish()
-            print(f"Market reward sent via MQTT on {self.TOPIC_RESULTS} for unit {unit.id}")
+            print(
+                f"Market reward sent via MQTT on {self.TOPIC_RESULTS} for unit {unit.id}"
+            )
         else:
             print("MQTT client or results topic not initialized, cannot send reward.")
-
-
 
 
 # import json
@@ -217,7 +232,6 @@ class LLMStrategy(BaseStrategy):
 # from assume.common.base import BaseStrategy, SupportsMinMaxCharge
 # from assume.common.market_objects import Orderbook, Product, MarketConfig
 # from assume.common.base import BaseStrategy, BaseUnit, SupportsMinMaxCharge
-
 
 
 # class LLMStrategy(BaseStrategy):
@@ -239,7 +253,7 @@ class LLMStrategy(BaseStrategy):
 #         # self.TOPIC_MARKET_STATUS = "mas4te/market/status_agent01"
 
 #         self.TOPIC_BIDS = f"mas4te/bids/agent{str(self.unit_id)}"
-#         self.TOPIC_RESULTS = f"mas4te/results/agent{str(self.unit_id)}" 
+#         self.TOPIC_RESULTS = f"mas4te/results/agent{str(self.unit_id)}"
 
 #         # MQTT setup
 #         self.client = mqtt.Client(client_id=f"assume_{comm_agent_port}")
@@ -248,7 +262,7 @@ class LLMStrategy(BaseStrategy):
 #         self.client.connect("localhost", 1883, 60)
 #         self.client.loop_start()
 
-        
+
 #     def calculate_bids(self, unit: SupportsMinMaxCharge, product_tuples: list[Product], **kwargs) -> Orderbook:
 #         """Wait for a bid from the agent and return it as an Orderbook."""
 
@@ -301,7 +315,7 @@ class LLMStrategy(BaseStrategy):
 #                 "agent_addr": unit.addr,
 #                 "node": unit.node,
 #                 "only_hours": product.only_hours,
-#                 }   
+#                 }
 
 
 #             orderbook = Orderbook(bids=[bid])
@@ -362,7 +376,6 @@ class LLMStrategy(BaseStrategy):
 #             self.market_open_sent = True
 #             print(f"Market open message sent by {self.role} strategy")
 
-        
 
 #     def on_message(self, client, userdata, msg):
 #         """Handle incoming bid messages from the agent."""
@@ -405,10 +418,6 @@ class LLMStrategy(BaseStrategy):
 #         #         "orderbook": orderbook,
 #         #     }
 #         # )
-
-
-
-
 
 
 # import json
@@ -473,7 +482,7 @@ class LLMStrategy(BaseStrategy):
 #     def open_market(self):
 #         print(self.market_config)
 #         msg = {
-#             "status": "market_open", 
+#             "status": "market_open",
 #             "products": [p.__dict__ for p in self]
 #         }
 
@@ -530,8 +539,6 @@ class LLMStrategy(BaseStrategy):
 #         return orderbook
 
 
-
-
 # # SPDX-FileCopyrightText: MAS4TE Developers
 # #
 # # SPDX-License-Identifier: AGPL-3.0-or-later
@@ -579,7 +586,7 @@ class LLMStrategy(BaseStrategy):
 #         """Builds a list of storage volumes to calculate worth for.
 
 #         Returns:
-#             list[Storage]: List of Storage objects with different volumes.
+#             list[Storage]: list of Storage objects with different volumes.
 #         """
 #         # Example: Create storages with volumes from 0 to 1000 in steps of 100
 #         storages = [
