@@ -249,10 +249,7 @@ class LLMBuyStrategy(LLMStrategy):
             marketconfig (MarketConfig): The market configuration.
             orderbook (Orderbook): The orderbook.
         """
-        # here we can learn something from our previous biddings
-        # TODO Bea
-        self.prompts = ...
-        self.accepted_orders = orderbook
+        print(orderbook)
 
 
 class LLMSellStrategy(LLMStrategy):
