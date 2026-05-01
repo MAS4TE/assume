@@ -19,7 +19,6 @@ from assume.common.market_objects import MarketConfig, MarketProduct
 
 log = logging.getLogger(__name__)
 
-
 def read_forecasts(start, end, id: int = 0, randomize: bool = False):
     """Reads the forecasts for a specific time period and unit ID.
 
@@ -70,20 +69,22 @@ def init(world: World, n=1):
     # start = datetime(2023, 1, 1, hour=13)
     # end = datetime(2023, 1, 29, hour=13)
     original_start = datetime(2023, 1, 1, hour=13)
-    original_end   = datetime(2023, 1, 29, hour=13)
+    # original_end   = datetime(2023, 6, 4, hour=13)
+    # original_end = datetime(2023, 11, 26, hour=13)  # 47 weeks after original_start
+    # original_end = datetime(2023, 1, 8, hour=13)
 
-    SHIFT_WEEKS = 4  # 4 weeks = same weekday
+    SHIFT_WEEKS = 1  # 4 weeks = same weekday
     shift = timedelta(weeks=SHIFT_WEEKS)
 
     start = original_start + shift
-    end   = original_end + shift
-    # end = datetime(2023, 12, 8, hour=13)
+    # end   = original_end + shift
+    end = datetime(2024, 1, 5, hour=13)
 
     # create index
     index = FastIndex(start, end, freq="h")
 
     # set simulation ID
-    simulation_id = "mas4te_simulation"
+    simulation_id = "mas4te_simulation_1year_profit"
 
     # add possible bidding strategies
     # world.bidding_strategies["llm_buy_strategy"] = LLMBuyStrategy
@@ -141,8 +142,8 @@ def init(world: World, n=1):
     ##################################################
     # SET THE NUMBER OF DEMAND AND SUPPLY UNITS HERE #
     ##################################################
-    n_demand_units = 1
-    n_supply_units = 1
+    n_demand_units = 2
+    n_supply_units = 2
 
     # actually create and add the demand units
     for i in range(n_demand_units):
@@ -198,7 +199,7 @@ def init(world: World, n=1):
         world.add_unit_operator(f"storage_provider_operator_{id_sell}")
         world.add_unit(
             # id=f"storage_provider_{id_sell}",
-            id = f"S_{id_buy}",
+            id = f"S_{id_sell}",
             unit_type="mas4te",
             unit_operator_id=f"storage_provider_operator_{id_sell}",
             unit_params={
