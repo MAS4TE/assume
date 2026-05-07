@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: ASSUME Developers
+# SPDX-FileCopyrightText: MAS4TE Developers
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -376,3 +376,26 @@ class LLMSellStrategy(LLMStrategy):
                 )
 
         return bids
+
+    def calculate_reward(
+        self,
+        unit: BaseUnit,
+        marketconfig: MarketConfig,
+        orderbook: Orderbook,
+    ):
+        """
+        Calculates the reward for the given unit.
+
+        Args:
+            unit (BaseUnit): The unit.
+            marketconfig (MarketConfig): The market configuration.
+            orderbook (Orderbook): The orderbook.
+        """
+
+        self.market_to_llm_queue.put(
+            {
+                "msg": "market result",
+                # "market_config": marketconfig,
+                "orderbook": orderbook,
+            }
+        )

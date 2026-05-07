@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: ASSUME Developers
+# SPDX-FileCopyrightText: MAS$TE Developers
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -19,6 +19,7 @@ from assume import World
 from assume.common.fast_pandas import FastIndex
 from assume.common.forecasts import NaiveForecast
 from assume.common.market_objects import MarketConfig, MarketProduct
+from assume.markets.clearing_algorithms import PayAsClearRole
 
 # np.random.seed(seed=42)
 log = logging.getLogger(__name__)
@@ -113,6 +114,7 @@ def init(
 
     # add possible clearing mechanism
     world.clearing_mechanisms["battery_clearing"] = BatteryClearing
+    world.clearing_mechanisms["pay_as_clear"] = PayAsClearRole
 
     # set up world
     world.setup(
@@ -166,7 +168,25 @@ def init(
             param_dict={"allowed_c_rates": [1]},
             minimum_bid_price=0,
             volume_unit="kW",
-        )
+        ),
+        MarketConfig(
+            market_id="CommunityEOM",
+            opening_hours=rr.rule(
+                rr.HOURLY, interval=1, dtstart=start, until=end, cache=True
+            ),
+            opening_duration=timedelta(hours=1),
+            market_mechanism="pay_as_clear",
+            product_type="power",
+            market_products=[
+                MarketProduct(
+                    duration=timedelta(
+                        minutes=15,
+                    ),
+                    count=4 * 24,  # next day in 15-minute-blocks
+                    first_delivery=timedelta(minutes=15),
+                )
+            ],
+        ),
     ]
 
     # create and add market operator
@@ -263,6 +283,7 @@ def init(
                 "efficiency_charge": 0.975,
                 "efficiency_discharge": 0.975,
                 "bidding_strategies": {"BatteryMarket": "llm_sell_strategy"},
+                "bidding_params": {"comm_agent_port": 8000 + n_demand_units + i},
                 "technology": "battery_storage",
             },
             forecaster=NaiveForecast(
