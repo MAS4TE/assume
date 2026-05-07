@@ -12,14 +12,14 @@ import pandas as pd
 import psycopg2
 from battery_utility_calculator import Storage
 from dateutil import rrule as rr
-from mas4te_bidding_strategy import LLMBuyStrategy, LLMSellStrategy
-from mas4te_clearing_mechanism import BatteryClearing
 
 from assume import World
 from assume.common.fast_pandas import FastIndex
 from assume.common.forecasts import NaiveForecast
 from assume.common.market_objects import MarketConfig, MarketProduct
 from assume.markets.clearing_algorithms import PayAsClearRole
+from mas4te.battery_market_strat import LLMBuyStrategy, LLMSellStrategy
+from mas4te.clearing_mechanism import BatteryClearing
 
 # np.random.seed(seed=42)
 log = logging.getLogger(__name__)
