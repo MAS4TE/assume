@@ -4,7 +4,7 @@
 
 import json
 import time
-from typing import List
+from typing import list
 
 import paho.mqtt.client as mqtt
 
@@ -59,11 +59,17 @@ class LLMStrategy(BaseStrategy):
             products_payload = []
             for p in product_tuples:
                 start_time, end_time, only_hours = p
-                products_payload.append({
-                    "start_time": start_time.isoformat() if hasattr(start_time, 'isoformat') else str(start_time),
-                    "end_time": end_time.isoformat() if hasattr(end_time, 'isoformat') else str(end_time),
-                    "only_hours": only_hours,
-                })
+                products_payload.append(
+                    {
+                        "start_time": start_time.isoformat()
+                        if hasattr(start_time, "isoformat")
+                        else str(start_time),
+                        "end_time": end_time.isoformat()
+                        if hasattr(end_time, "isoformat")
+                        else str(end_time),
+                        "only_hours": only_hours,
+                    }
+                )
 
             # Build market products from config
             market_products_payload = []
@@ -122,7 +128,7 @@ class LLMStrategy(BaseStrategy):
         orders = []
 
         start_time, end_time, only_hours = product_tuples[0]
-        c_rate = market_config.param_dict['allowed_c_rates'][0]
+        c_rate = market_config.param_dict["allowed_c_rates"][0]
 
         for bid in bids:
             if not isinstance(bid, dict):
@@ -183,17 +189,23 @@ class LLMStrategy(BaseStrategy):
             # Acknowledge
             client.publish(
                 self.TOPIC_RESULTS,
-                json.dumps({
-                    "ack": "bids_received",
-                    "count": len(bids),
-                    "bid_ids": [b.get("bid_id", 0) for b in bids if isinstance(b, dict)]
-                })
+                json.dumps(
+                    {
+                        "ack": "bids_received",
+                        "count": len(bids),
+                        "bid_ids": [
+                            b.get("bid_id", 0) for b in bids if isinstance(b, dict)
+                        ],
+                    }
+                ),
             )
 
             print("Confirmed bids received")
 
-    def calculate_reward(self, unit: BaseUnit, marketconfig: MarketConfig, orderbook: Orderbook):
-        print('in calculate reward')
+    def calculate_reward(
+        self, unit: BaseUnit, marketconfig: MarketConfig, orderbook: Orderbook
+    ):
+        print("in calculate reward")
         self.market_open_sent = False
 
         payload = {
@@ -212,6 +224,8 @@ class LLMStrategy(BaseStrategy):
                 retain=False,
             )
             msg_info.wait_for_publish()
-            print(f"Market reward sent via MQTT on {self.TOPIC_RESULTS} for unit {unit.id}")
+            print(
+                f"Market reward sent via MQTT on {self.TOPIC_RESULTS} for unit {unit.id}"
+            )
         else:
             print("MQTT client or results topic not initialized, cannot send reward.")
