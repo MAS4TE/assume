@@ -9,8 +9,8 @@ from datetime import datetime, timedelta
 import pandas as pd
 from battery_utility_calculator import Storage
 from dateutil import rrule as rr
-from mas4te_bidding_strategy import LLMStrategy#LLMBuyStrategy, LLMSellStrategy
-from mas4te_clearing_mechanism import BatteryClearing
+from mas4te_bidding_strategy import LLMStrategy
+from mas4te_market_clearing import BatteryClearing
 
 from assume import World
 from assume.common.fast_pandas import FastIndex
@@ -19,6 +19,7 @@ from assume.common.market_objects import MarketConfig, MarketProduct
 from assume.markets.clearing_algorithms import PayAsClearRole
 
 log = logging.getLogger(__name__)
+
 
 def read_forecasts(start, end, id: int = 0, randomize: bool = False):
     """Reads the forecasts for a specific time period and unit ID.
@@ -81,7 +82,6 @@ def init(world: World, n=1):
     # end   = original_end + shift
     # end = datetime(2024, 1, 5, hour=13)
     end = datetime(2023, 7, 5, hour=13)
-    
 
     # create index
     index = FastIndex(start, end, freq="h")
@@ -179,7 +179,7 @@ def init(world: World, n=1):
         id_buy = "0" + str(i + 1) if i < 9 else str(i + 1)
         world.add_unit_operator(id=f"storage_demand_operator_{id_buy}")
         world.add_unit(
-            id = f"B_{id_buy}",
+            id=f"B_{id_buy}",
             # id = id_buy,
             unit_type="mas4te",
             unit_operator_id=f"storage_demand_operator_{id_buy}",
@@ -193,7 +193,7 @@ def init(world: World, n=1):
                     "BatteryMarket": "llm_strategy",
                 },
                 "bidding_params": {
-                    "role":"buy",
+                    "role": "buy",
                     # "unit_id" : id_buy,
                     "market_config": market_config,
                 },
@@ -221,11 +221,13 @@ def init(world: World, n=1):
         world.add_unit_operator(f"storage_provider_operator_{id_sell}")
         world.add_unit(
             # id=f"storage_provider_{id_sell}",
-            id = f"S_{id_sell}",
+            id=f"S_{id_sell}",
             unit_type="mas4te",
             unit_operator_id=f"storage_provider_operator_{id_sell}",
             unit_params={
-                "baseline_storage": Storage(id=0, c_rate=1, volume=5, charge_efficiency=0.95),
+                "baseline_storage": Storage(
+                    id=0, c_rate=1, volume=5, charge_efficiency=0.95
+                ),
                 "max_power_charge": 1,  # max 1 kW charge
                 "max_power_discharge": 1,  # max 1 kW discharge
                 "max_soc": 20,  # max 20 kWh of storage capacity (equal to baseline)
@@ -234,7 +236,7 @@ def init(world: World, n=1):
                 "efficiency_discharge": 0.975,
                 "bidding_strategies": {"BatteryMarket": "llm_strategy"},
                 "bidding_params": {
-                    "role":"sell",
+                    "role": "sell",
                     # "unit_id" : id_sell,
                     "market_config": market_config,
                 },
