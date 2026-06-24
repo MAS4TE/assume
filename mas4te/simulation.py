@@ -135,7 +135,7 @@ def init(world: World, n=1):
         ),
         MarketConfig(
             market_id="CommunityEOM",
-            opening_hours=rr.rule(
+            opening_hours=rr.rrule(
                 rr.HOURLY, interval=1, dtstart=start, until=end, cache=True
             ),
             opening_duration=timedelta(hours=1),
