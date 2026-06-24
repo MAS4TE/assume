@@ -4,7 +4,7 @@
 
 import json
 import time
-from typing import list
+from typing import List
 
 import paho.mqtt.client as mqtt
 

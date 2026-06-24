@@ -68,7 +68,7 @@ def init(world: World, n=1):
     # set start and end date
     # start = datetime(2023, 1, 1, hour=13)
     # end = datetime(2023, 1, 29, hour=13)
-    original_start = datetime(2023, 1, 1, hour=13)
+    original_start = datetime(2023, 5, 1, hour=13)
     # original_end   = datetime(2023, 6, 4, hour=13)
     # original_end = datetime(2023, 11, 26, hour=13)  # 47 weeks after original_start
     # original_end = datetime(2023, 1, 8, hour=13)
@@ -78,13 +78,15 @@ def init(world: World, n=1):
 
     start = original_start + shift
     # end   = original_end + shift
-    end = datetime(2024, 1, 5, hour=13)
+    # end = datetime(2024, 1, 5, hour=13)
+    end = datetime(2023, 7, 5, hour=13)
+    
 
     # create index
     index = FastIndex(start, end, freq="h")
 
     # set simulation ID
-    simulation_id = "mas4te_simulation_1year_profit"
+    simulation_id = "mas4te_simulation_test"
 
     # add possible bidding strategies
     # world.bidding_strategies["llm_buy_strategy"] = LLMBuyStrategy

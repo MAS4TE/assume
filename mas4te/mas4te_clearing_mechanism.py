@@ -246,7 +246,7 @@ class BatteryClearing(MarketRole):
         # set accepted volume to 0 and price to clear price for rejected orders
         for order in rejected_orders:
             order["accepted_volume"] = 0
-            order["accepted_price"] = clear_price
+            order["accepted_price"] = 0
 
         print(f"Clearing price: {clear_price * 100} ct./kWh")
         print(
