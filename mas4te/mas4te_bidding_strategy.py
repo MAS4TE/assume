@@ -40,8 +40,11 @@ class LLMStrategy(BaseStrategy):
             )
             self.client.on_connect = self.on_connect
             self.client.on_message = self.on_message
+
+            # connect to the MQTT broker
             self.client.connect("localhost", 1883, 60)
-            self.client.loop_start()
+
+            self.run_loop = True
             LLMStrategy._mqtt_clients[client_key] = self.client
         else:
             self.client = LLMStrategy._mqtt_clients[client_key]
@@ -107,29 +110,20 @@ class LLMStrategy(BaseStrategy):
             print(f"Market open message sent by {self.role} strategy")
             time.sleep(0.2)  # Give MQTT time to propagate
 
-        # ---- WAIT FOR BIDS ----
-        print(f"{self.role.capitalize()} strategy waiting for bids from agent...")
-        timeout = 4000
-        start = time.time()
+        max_run_time = 10 * 60
+        start_time = time.time()
+        while self.run_loop:
+            self.client.loop()
+            current_time = time.time()
+            if (current_time - start_time) > max_run_time:
+                break
 
-        while self.latest_bids is None and (time.time() - start < timeout):
-            time.sleep(0.05)
-
-        if self.latest_bids is None:
-            print(f"No bids received within timeout for {self.role}, using default")
-            bids = [{"bid_id": 0, "price": 0, "quantity": 0}]
-        else:
-            bids = self.latest_bids
-            self.latest_bids = None
-            print(f"{self.role.capitalize()} strategy received {len(bids)} bids")
-
-        # ---- BUILD ORDERBOOK ----
         orders = []
 
         start_time, end_time, only_hours = product_tuples[0]
         c_rate = market_config.param_dict["allowed_c_rates"][0]
 
-        for bid in bids:
+        for bid in self.latest_bids:
             if not isinstance(bid, dict):
                 print(f"Skipping invalid bid: {bid}")
                 continue
@@ -156,7 +150,6 @@ class LLMStrategy(BaseStrategy):
 
             orders.append(order)
 
-        print(f"{self.role.capitalize()} orderbook generated with {len(orders)} orders")
         return orders
 
     def on_connect(self, client, userdata, flags, rc, properties=None):
@@ -200,6 +193,8 @@ class LLMStrategy(BaseStrategy):
             )
 
             print("Confirmed bids received")
+
+            self.run_loop = False
 
     def calculate_reward(
         self, unit: BaseUnit, marketconfig: MarketConfig, orderbook: Orderbook
