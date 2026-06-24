@@ -109,8 +109,8 @@ def init(
     #         return
 
     # add possible bidding strategies
-    world.bidding_strategies["llm_buy_strategy"] = LLMBuyStrategy
-    world.bidding_strategies["llm_sell_strategy"] = LLMSellStrategy
+    world.bidding_strategies["buy_strategy"] = LLMBuyStrategy
+    world.bidding_strategies["sell_strategy"] = LLMSellStrategy
 
     # add possible clearing mechanism
     world.clearing_mechanisms["battery_clearing"] = BatteryClearing
