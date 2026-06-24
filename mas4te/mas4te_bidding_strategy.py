@@ -2,187 +2,230 @@
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
-from multiprocessing import Process, Queue
+import json
+import time
+from typing import list
 
-import communication_agent
-import requests
-from battery_utility_calculator import Storage
+import paho.mqtt.client as mqtt
 
-from assume.common.base import BaseStrategy, BaseUnit, SupportsMinMaxCharge
-from assume.common.market_objects import MarketConfig, Orderbook, Product
+from assume.common.base import BaseStrategy, BaseUnit
+from assume.common.market_objects import MarketConfig, Orderbook
 
 
 class LLMStrategy(BaseStrategy):
     """
-    A strategy that uses a Large Language Model (LLM) for a storage buyer.
-
-    Params:
-        llm_api_url (str): The URL of the LLM API to use for generating bids.
+    MQTT-based strategy that can act as buyer or seller.
+    Supports multi-bid orderbooks.
     """
 
-    def __init__(self, llm_api_url=None, baseline_storage=0, *args, **kwargs):
-        super().__init__()
-        self.baseline_storage = baseline_storage
-        self.api_url = llm_api_url
-        self.headers = {"Content-Type": "application/json"}
-        self.storages_to_calculate = self.build_storages_to_calculate()
+    # Shared MQTT clients across all instances
+    _mqtt_clients = {}
 
-        self.market_to_llm_queue = Queue()
-        self.llm_to_market_queue = Queue()
+    def __init__(self, unit_id, role="buy", market_config=None, comm_agent_port=8000):
+        self.unit_id = unit_id
+        self.role = role  # "buy" or "sell"
+        self.market_config = market_config
+        self.latest_bids = None  # <-- now stores multiple bids
+        self.market_open_sent = False
 
-        self.process = Process(
-            target=communication_agent.run_app,
-            daemon=True,
-            kwargs={
-                "port": kwargs.get("comm_agent_port", 8000),
-                "market_to_llm_queue": self.market_to_llm_queue,
-                "llm_to_market_queue": self.llm_to_market_queue,
-            },
-        )
-        self.process.start()
+        # MQTT topics
+        self.TOPIC_MARKET_STATUS = f"mas4te/market/status_agent{str(self.unit_id)}"
+        self.TOPIC_BIDS = f"mas4te/bids/agent{str(self.unit_id)}"
+        self.TOPIC_RESULTS = f"mas4te/results/agent{str(self.unit_id)}"
 
-    def build_storages_to_calculate(self):
-        """Builds a list of storage volumes to calculate worth for.
-
-        Returns:
-            list[Storage]: List of Storage objects with different volumes.
-        """
-        # Example: Create storages with volumes from 0 to 1000 in steps of 100
-        storages = [
-            Storage(id=i, volume=i, c_rate=1, efficiency=0.95) for i in range(1, 15)
-        ]
-
-        storages += [
-            Storage(id=i, volume=i * 5, c_rate=1, efficiency=0.95) for i in range(3, 11)
-        ]
-
-        return storages
-
-    def run_prompt(
-        self, prompt: str, model="Mistral-7B-Instruct-v0.3-Q4_K_M", max_tokens=1000
-    ):
-        data = {"model": model, "prompt": prompt, "max_tokens": max_tokens}
-        response = requests.post(self.api_url, headers=self.headers, json=data)
-        response.raise_for_status()
-        result = response.json()
-        return result.get("choices", [{}])[0].get("text", "")
-
-
-class LLMBuyStrategy(LLMStrategy):
-    """A strategy that uses a Large Language Model (LLM) for a storage buyer."""
-
-    def __init__(self, llm_api_url=None, baseline_storage=0, *args, **kwargs):
-        super().__init__(llm_api_url, baseline_storage, *args, **kwargs)
+        # MQTT setup (shared clients)
+        client_key = f"{role}_{unit_id}_{comm_agent_port}"
+        if client_key not in LLMStrategy._mqtt_clients:
+            self.client = mqtt.Client(
+                client_id=f"assume_{comm_agent_port}_{role}_{unit_id}"
+            )
+            self.client.on_connect = self.on_connect
+            self.client.on_message = self.on_message
+            self.client.connect("localhost", 1883, 60)
+            self.client.loop_start()
+            LLMStrategy._mqtt_clients[client_key] = self.client
+        else:
+            self.client = LLMStrategy._mqtt_clients[client_key]
 
     def calculate_bids(
-        self,
-        unit: SupportsMinMaxCharge,
-        market_config: MarketConfig,
-        product_tuples: list[Product],
-        **kwargs,
-    ) -> Orderbook:
-        """Calculates the value of multiple storage volumes for a predicted demand and price timeseries via linear optimization.
-
-        Args:
-            unit (SupportsMinMaxCharge): The unit to calculate bids for.
-            market_config (MarketConfig): The market configuration to use.
-            product_tuples (list[Product]): The list of products to calculate bids for.
-
-        Returns:
-            Orderbook: The calculated order book with bids.
-        """
-
-        self.market_to_llm_queue.put(
-            {
-                "msg": "calculate bids",
-                # "market_config": market_config,
-                "product_tuples": product_tuples[0],
-            }
-        )
-
-        bids = self.llm_to_market_queue.get()
-
-        return bids
-
-    def calculate_reward(
-        self,
-        unit: BaseUnit,
-        marketconfig: MarketConfig,
-        orderbook: Orderbook,
+        self, unit, product_tuples: list[tuple], market_config=None, **kwargs
     ):
         """
-        Calculates the reward for the given unit.
-
-        Args:
-            unit (BaseUnit): The unit.
-            marketconfig (MarketConfig): The market configuration.
-            orderbook (Orderbook): The orderbook.
+        Wait for bids from agent and return them as an Orderbook (list of orders).
         """
 
-        self.market_to_llm_queue.put(
-            {
-                "msg": "market result",
-                # "market_config": marketconfig,
-                "orderbook": orderbook,
+        # Send market open message on first call (when we have products)
+        if not self.market_open_sent and self.market_config:
+            products_payload = []
+            for p in product_tuples:
+                start_time, end_time, only_hours = p
+                products_payload.append(
+                    {
+                        "start_time": start_time.isoformat()
+                        if hasattr(start_time, "isoformat")
+                        else str(start_time),
+                        "end_time": end_time.isoformat()
+                        if hasattr(end_time, "isoformat")
+                        else str(end_time),
+                        "only_hours": only_hours,
+                    }
+                )
+
+            # Build market products from config
+            market_products_payload = []
+            for p in getattr(self.market_config, "market_products", []):
+                market_products_payload.append(
+                    {
+                        "duration_seconds": p.duration.total_seconds(),
+                        "count": p.count,
+                        "first_delivery": p.first_delivery.total_seconds(),
+                        "only_hours": p.only_hours,
+                    }
+                )
+
+            market_open_msg = {
+                "status": "market_open",
+                "market_id": self.market_config.market_id,
+                "product_type": self.market_config.product_type,
+                "maximum_bid_volume": self.market_config.maximum_bid_volume,
+                "maximum_bid_price": self.market_config.maximum_bid_price,
+                "minimum_bid_price": self.market_config.minimum_bid_price,
+                "volume_unit": self.market_config.volume_unit,
+                "price_unit": self.market_config.price_unit,
+                "additional_fields": self.market_config.additional_fields,
+                "market_products": market_products_payload,
+                "products": products_payload,
             }
-        )
 
+            msg_info = self.client.publish(
+                self.TOPIC_MARKET_STATUS,
+                json.dumps(market_open_msg, indent=4),
+                qos=1,
+                retain=True,
+            )
+            msg_info.wait_for_publish()
+            self.market_open_sent = True
+            print(f"Market open message sent by {self.role} strategy")
+            time.sleep(0.2)  # Give MQTT time to propagate
 
-class LLMSellStrategy(LLMStrategy):
-    """A strategy that uses a Large Language Model (LLM) for a storage seller."""
+        # ---- WAIT FOR BIDS ----
+        print(f"{self.role.capitalize()} strategy waiting for bids from agent...")
+        timeout = 4000
+        start = time.time()
 
-    def __init__(self, llm_api_url=None, baseline_storage=0, *args, **kwargs):
-        super().__init__(llm_api_url, baseline_storage, *args, **kwargs)
+        while self.latest_bids is None and (time.time() - start < timeout):
+            time.sleep(0.05)
 
-    def calculate_bids(
-        self,
-        unit: SupportsMinMaxCharge,
-        market_config: MarketConfig,
-        product_tuples: list[Product],
-        **kwargs,
-    ) -> Orderbook:
-        """Calculates the value of multiple storage volumes for a predicted demand and price timeseries via linear optimization.
+        if self.latest_bids is None:
+            print(f"No bids received within timeout for {self.role}, using default")
+            bids = [{"bid_id": 0, "price": 0, "quantity": 0}]
+        else:
+            bids = self.latest_bids
+            self.latest_bids = None
+            print(f"{self.role.capitalize()} strategy received {len(bids)} bids")
 
-        Args:
-            unit (SupportsMinMaxCharge): The unit to calculate bids for.
-            market_config (MarketConfig): The market configuration to use.
-            product_tuples (list[Product]): The list of products to calculate bids for.
+        # ---- BUILD ORDERBOOK ----
+        orders = []
 
-        Returns:
-            Orderbook: The calculated order book with bids.
-        """
+        start_time, end_time, only_hours = product_tuples[0]
+        c_rate = market_config.param_dict["allowed_c_rates"][0]
 
-        self.market_to_llm_queue.put(
-            {
-                "msg": "calculate bids",
-                # "market_config": market_config,
-                "product_tuples": product_tuples[0],
+        for bid in bids:
+            if not isinstance(bid, dict):
+                print(f"Skipping invalid bid: {bid}")
+                continue
+
+            quantity = bid.get("quantity", 0)
+
+            # fallback if still using "volume"
+            if "volume" in bid and "quantity" not in bid:
+                quantity = bid["volume"]
+
+            volume = quantity if self.role == "sell" else -quantity
+
+            order = {
+                "bid_id": bid.get("bid_id", 0),
+                "start_time": start_time,
+                "end_time": end_time,
+                "volume": volume,
+                "price": bid.get("price", 0),
+                "agent_addr": getattr(unit, "addr", "agent_addr_unknown"),
+                "node": getattr(unit, "node", "node_unknown"),
+                "only_hours": only_hours if only_hours is not None else [],
+                "c_rate": c_rate,
             }
-        )
 
-        bids = self.llm_to_market_queue.get()
+            orders.append(order)
 
-        return bids
+        print(f"{self.role.capitalize()} orderbook generated with {len(orders)} orders")
+        return orders
+
+    def on_connect(self, client, userdata, flags, rc, properties=None):
+        print(f"{self.role.capitalize()} strategy connected to MQTT broker, rc={rc}")
+        client.subscribe([(self.TOPIC_BIDS, 0)])
+
+    def on_message(self, client, userdata, msg):
+        if msg.topic == self.TOPIC_BIDS:
+            payload = json.loads(msg.payload.decode())
+            print(f"{self.role.capitalize()} strategy received bid(s): {payload}")
+
+            # Normalize to list
+            if isinstance(payload, dict):
+                bids = [payload]
+            elif isinstance(payload, list):
+                bids = payload
+            else:
+                print(f"Invalid payload type: {type(payload)}")
+                return
+
+            # Normalize fields
+            for bid in bids:
+                if isinstance(bid, dict):
+                    if "volume" in bid and "quantity" not in bid:
+                        bid["quantity"] = bid["volume"]
+
+            self.latest_bids = bids
+
+            # Acknowledge
+            client.publish(
+                self.TOPIC_RESULTS,
+                json.dumps(
+                    {
+                        "ack": "bids_received",
+                        "count": len(bids),
+                        "bid_ids": [
+                            b.get("bid_id", 0) for b in bids if isinstance(b, dict)
+                        ],
+                    }
+                ),
+            )
+
+            print("Confirmed bids received")
 
     def calculate_reward(
-        self,
-        unit: BaseUnit,
-        marketconfig: MarketConfig,
-        orderbook: Orderbook,
+        self, unit: BaseUnit, marketconfig: MarketConfig, orderbook: Orderbook
     ):
-        """
-        Calculates the reward for the given unit.
+        print("in calculate reward")
+        self.market_open_sent = False
 
-        Args:
-            unit (BaseUnit): The unit.
-            marketconfig (MarketConfig): The market configuration.
-            orderbook (Orderbook): The orderbook.
-        """
+        payload = {
+            "msg": "market result",
+            "market_id": getattr(marketconfig, "market_id", None),
+            "orderbook": orderbook,
+            "unit_id": getattr(unit, "id", None),
+        }
 
-        self.market_to_llm_queue.put(
-            {
-                "msg": "market result",
-                # "market_config": marketconfig,
-                "orderbook": orderbook,
-            }
-        )
+        # Publish using the existing MQTT client and topic
+        if hasattr(self, "client") and hasattr(self, "TOPIC_RESULTS"):
+            msg_info = self.client.publish(
+                self.TOPIC_RESULTS,
+                json.dumps(payload, default=str, indent=4),
+                qos=1,
+                retain=False,
+            )
+            msg_info.wait_for_publish()
+            print(
+                f"Market reward sent via MQTT on {self.TOPIC_RESULTS} for unit {unit.id}"
+            )
+        else:
+            print("MQTT client or results topic not initialized, cannot send reward.")
