@@ -67,6 +67,7 @@ def read_forecasts(start, end, id: int = 0, randomize: bool = False):
 
 
 def init(world: World, n=1):
+    print('init world')
     # set start and end date
     # start = datetime(2023, 1, 1, hour=13)
     # end = datetime(2023, 1, 29, hour=13)
@@ -133,24 +134,24 @@ def init(world: World, n=1):
             minimum_bid_price=0,
             volume_unit="kW",
         ),
-        MarketConfig(
-            market_id="CommunityEOM",
-            opening_hours=rr.rrule(
-                rr.HOURLY, interval=1, dtstart=start, until=end, cache=True
-            ),
-            opening_duration=timedelta(hours=1),
-            market_mechanism="pay_as_clear",
-            product_type="power",
-            market_products=[
-                MarketProduct(
-                    duration=timedelta(
-                        minutes=15,
-                    ),
-                    count=4 * 24,  # next day in 15-minute-blocks
-                    first_delivery=timedelta(minutes=15),
-                )
-            ],
-        ),
+        # MarketConfig(
+        #     market_id="CommunityEOM",
+        #     opening_hours=rr.rrule(
+        #         rr.HOURLY, interval=1, dtstart=start, until=end, cache=True
+        #     ),
+        #     opening_duration=timedelta(hours=1),
+        #     market_mechanism="pay_as_clear",
+        #     product_type="power",
+        #     market_products=[
+        #         MarketProduct(
+        #             duration=timedelta(
+        #                 minutes=15,
+        #             ),
+        #             count=4 * 24,  # next day in 15-minute-blocks
+        #             first_delivery=timedelta(minutes=15),
+        #         )
+        #     ],
+        # ),
     ]
 
     # create and add market operator
@@ -169,6 +170,7 @@ def init(world: World, n=1):
 
     # actually create and add the demand units
     for i in range(n_demand_units):
+        print('demand unit ', i)
         # we need a demand, solar generation and price forecast to build bids
         # so we have to read them in before providing them to the forecaster of the unit
         # -----------------------------------------------------------------------------------
@@ -213,6 +215,7 @@ def init(world: World, n=1):
 
     # actually create and add the supply units
     for i in range(n_supply_units):
+        print('supply unit ', i)
         # same as above - set an ID or set randomize to True
         forecasts = read_forecasts(start, end, id=str(i))
 
@@ -262,7 +265,7 @@ def init(world: World, n=1):
 
 if __name__ == "__main__":
     # db_uri = "postgresql://assume:assume@localhost:5432/assume"
-    db_uri = "sqlite:///mas4te-assume.db"
+    db_uri = "sqlite:///new-mas4te-assume.db"
     world = World(database_uri=db_uri, log_level="ERROR")
     init(world)
     logging.getLogger("gurobipy").setLevel(logging.WARNING)  # suppress gurobipy logs

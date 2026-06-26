@@ -10,6 +10,8 @@ import paho.mqtt.client as mqtt
 from assume.common.base import BaseStrategy, BaseUnit
 from assume.common.market_objects import MarketConfig, Orderbook
 
+from datetime import datetime
+
 
 class LLMStrategy(BaseStrategy):
     """
@@ -38,12 +40,13 @@ class LLMStrategy(BaseStrategy):
             self.client = mqtt.Client(
                 client_id=f"assume_{comm_agent_port}_{role}_{unit_id}"
             )
-            self.client.on_connect = self.on_connect
             self.client.on_message = self.on_message
-
-            # connect to the MQTT broker
+            self.client.on_connect = self.on_connect
             self.client.connect("localhost", 1883, 60)
-
+            self.client.loop_start()
+            time.sleep(0.5)  # wait for connection to establish
+            # self.client.subscribe([(self.TOPIC_BIDS, 0)])
+            print(f"{str(self.unit_id)}, Subscribed to {self.TOPIC_BIDS}")
             self.run_loop = True
             LLMStrategy._mqtt_clients[client_key] = self.client
         else:
@@ -56,6 +59,15 @@ class LLMStrategy(BaseStrategy):
         Wait for bids from agent and return them as an Orderbook (list of orders).
         """
 
+        self.run_loop = True
+        self.latest_bids = None
+        # self.market_open_sent = False
+
+        print(f"[DEBUG] {str(self.unit_id)}  calculate_bids called for {self.unit_id}")
+        print(f"[DEBUG] {str(self.unit_id)}  MQTT connected: {self.client.is_connected()}")
+
+        # self.client.loop_start()
+        
         # Send market open message on first call (when we have products)
         if not self.market_open_sent and self.market_config:
             products_payload = []
@@ -107,16 +119,22 @@ class LLMStrategy(BaseStrategy):
             )
             msg_info.wait_for_publish()
             self.market_open_sent = True
-            print(f"Market open message sent by {self.role} strategy")
+            print(f" {str(self.unit_id)}  {datetime.now().isoformat()}, Market open message sent by {self.role} strategy")
             time.sleep(0.2)  # Give MQTT time to propagate
 
         max_run_time = 10 * 60
         start_time = time.time()
         while self.run_loop:
-            self.client.loop()
-            current_time = time.time()
-            if (current_time - start_time) > max_run_time:
+            if (time.time() - start_time) > max_run_time:
+                print(f"[DEBUG] {str(self.unit_id)} Timeout waiting for bids for {self.unit_id}")
                 break
+            time.sleep(0.1)
+
+        # self.client.loop_stop()
+
+        if not self.latest_bids:
+            print(f"{str(self.unit_id)} No bids received for {self.unit_id}, returning empty orderbook")
+            return []
 
         orders = []
 
@@ -153,13 +171,14 @@ class LLMStrategy(BaseStrategy):
         return orders
 
     def on_connect(self, client, userdata, flags, rc, properties=None):
-        print(f"{self.role.capitalize()} strategy connected to MQTT broker, rc={rc}")
+        print(f"{str(self.unit_id)} {self.role.capitalize()} strategy connected to MQTT broker, rc={rc}")
         client.subscribe([(self.TOPIC_BIDS, 0)])
 
     def on_message(self, client, userdata, msg):
+        # print(f"{str(self.unit_id)} on message" , msg.payload.decode())
         if msg.topic == self.TOPIC_BIDS:
             payload = json.loads(msg.payload.decode())
-            print(f"{self.role.capitalize()} strategy received bid(s): {payload}")
+            # print(f" {str(self.unit_id)} {self.role.capitalize()} strategy received bid(s): {payload}")
 
             # Normalize to list
             if isinstance(payload, dict):
