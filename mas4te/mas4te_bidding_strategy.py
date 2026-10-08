@@ -154,8 +154,10 @@ class LLMStrategy(BaseStrategy):
 
             volume = quantity if self.role == "sell" else -quantity
 
+            # prefix with the unit id, agents number their bids independently
+            # and the clearing needs unique bid ids to report the matches
             order = {
-                "bid_id": bid.get("bid_id", 0),
+                "bid_id": f"{unit.id}_{bid.get('bid_id', 0)}",
                 "start_time": start_time,
                 "end_time": end_time,
                 "volume": volume,
@@ -164,6 +166,7 @@ class LLMStrategy(BaseStrategy):
                 "node": getattr(unit, "node", "node_unknown"),
                 "only_hours": only_hours if only_hours is not None else [],
                 "c_rate": c_rate,
+                "blockchain_address": unit.blockchain_address,
             }
 
             orders.append(order)
@@ -221,10 +224,20 @@ class LLMStrategy(BaseStrategy):
         print("in calculate reward")
         self.market_open_sent = False
 
+        # the clearing stores the counterparties as JSON string, decode them
+        # so the agent gets who it was matched with as structured data
+        orders = []
+        for order in orderbook:
+            order = dict(order)
+            if isinstance(order.get("matches"), str):
+                order["matches"] = json.loads(order["matches"])
+            orders.append(order)
+
         payload = {
             "msg": "market result",
             "market_id": getattr(marketconfig, "market_id", None),
-            "orderbook": orderbook,
+            "blockchain_address": getattr(unit, "blockchain_address", None),
+            "orderbook": orders,
             "unit_id": getattr(unit, "id", None),
         }
 
