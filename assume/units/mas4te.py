@@ -25,7 +25,6 @@ class MAS4TEUnit(BaseUnit):
         bidding_strategies: dict,
         forecaster: Forecaster,
         baseline_storage: Storage,
-        blockchain_address: str,
         model_context: list[str] | None = None,
         previous_bids: list[Order] | None = None,
         previous_accepted_bids: list[Order] | None = None,
@@ -45,13 +44,7 @@ class MAS4TEUnit(BaseUnit):
             **kwargs,
         )
 
-        if not isinstance(blockchain_address, str) or not blockchain_address.strip():
-            raise ValueError(
-                f"MAS4TE unit {id} needs a blockchain_address, got {blockchain_address!r}"
-            )
-
         self.baseline_storage = baseline_storage
-        self.blockchain_address = blockchain_address
         self.model_context = model_context
         self.previous_bids = previous_bids
         self.previous_accepted_bids = previous_accepted_bids
@@ -68,7 +61,6 @@ class MAS4TEUnit(BaseUnit):
         unit_dict.update(
             {
                 "baseline_storage": str(self.baseline_storage),
-                "blockchain_address": self.blockchain_address,
                 "model_context": self.model_context,
                 "previous_bids": self.previous_bids,
                 "previous_accepted_bids": self.previous_accepted_bids,

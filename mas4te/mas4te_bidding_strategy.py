@@ -146,6 +146,11 @@ class LLMStrategy(BaseStrategy):
                 print(f"Skipping invalid bid: {bid}")
                 continue
 
+            # the agent is assigned its blockchain address and sends it with every bid
+            if not bid.get("blockchain_address"):
+                print(f"Skipping bid without blockchain_address: {bid}")
+                continue
+
             quantity = bid.get("quantity", 0)
 
             # fallback if still using "volume"
@@ -166,7 +171,7 @@ class LLMStrategy(BaseStrategy):
                 "node": getattr(unit, "node", "node_unknown"),
                 "only_hours": only_hours if only_hours is not None else [],
                 "c_rate": c_rate,
-                "blockchain_address": unit.blockchain_address,
+                "blockchain_address": bid["blockchain_address"],
             }
 
             orders.append(order)
@@ -236,7 +241,6 @@ class LLMStrategy(BaseStrategy):
         payload = {
             "msg": "market result",
             "market_id": getattr(marketconfig, "market_id", None),
-            "blockchain_address": getattr(unit, "blockchain_address", None),
             "orderbook": orders,
             "unit_id": getattr(unit, "id", None),
         }

@@ -20,15 +20,6 @@ from assume.markets.clearing_algorithms import PayAsClearRole
 
 log = logging.getLogger(__name__)
 
-# blockchain address of each unit, exchanged with the counterparties after clearing
-# TODO: replace the placeholders with the real addresses of the agents
-BLOCKCHAIN_ADDRESSES = {
-    "B_01": "placeholder-address-B_01",
-    "B_02": "placeholder-address-B_02",
-    "S_01": "placeholder-address-S_01",
-    "S_02": "placeholder-address-S_02",
-}
-
 
 def read_forecasts(start, end, id: int = 0, randomize: bool = False):
     """Reads the forecasts for a specific time period and unit ID.
@@ -198,7 +189,6 @@ def init(world: World, n=1):
                 "baseline_storage": Storage(
                     id=0, c_rate=1, volume=0, charge_efficiency=1
                 ),  # unit has no storage
-                "blockchain_address": BLOCKCHAIN_ADDRESSES[f"B_{id_buy}"],
                 "max_power": 1000,  # max 1.000 kW demand
                 "min_power": 0,  # no minimum demand
                 "bidding_strategies": {
@@ -241,7 +231,6 @@ def init(world: World, n=1):
                 "baseline_storage": Storage(
                     id=0, c_rate=1, volume=5, charge_efficiency=0.95
                 ),
-                "blockchain_address": BLOCKCHAIN_ADDRESSES[f"S_{id_sell}"],
                 "max_power_charge": 1,  # max 1 kW charge
                 "max_power_discharge": 1,  # max 1 kW discharge
                 "max_soc": 20,  # max 20 kWh of storage capacity (equal to baseline)
