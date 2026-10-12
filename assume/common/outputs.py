@@ -15,6 +15,7 @@ import pandas as pd
 from dateutil import rrule as rr
 from mango import Role
 from pandas.api.types import is_bool_dtype, is_numeric_dtype
+from pandas.errors import DatabaseError as PandasDatabaseError
 from psycopg2.errors import UndefinedColumn
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import DataError, OperationalError, ProgrammingError
@@ -518,7 +519,13 @@ class WriteOutput(Role):
                 try:
                     with self.db.begin() as db:
                         df.to_sql(table, db, if_exists="append")
-                except (ProgrammingError, OperationalError, DataError):
+                # pandas >= 3 wraps the SQLAlchemy errors in its own DatabaseError
+                except (
+                    ProgrammingError,
+                    OperationalError,
+                    DataError,
+                    PandasDatabaseError,
+                ):
                     self.check_columns(table, df)
                     # now try again
                     with self.db.begin() as db:
