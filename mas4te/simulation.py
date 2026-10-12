@@ -9,8 +9,8 @@ from datetime import datetime, timedelta
 import pandas as pd
 from battery_utility_calculator import Storage
 from dateutil import rrule as rr
-from mas4te_bidding_strategy import LLMStrategy#LLMBuyStrategy, LLMSellStrategy
-from mas4te_clearing_mechanism import BatteryClearing
+from mas4te_bidding_strategy import LLMStrategy
+from mas4te_market_clearing import BatteryClearing
 
 from assume import World
 from assume.common.fast_pandas import FastIndex
@@ -19,6 +19,16 @@ from assume.common.market_objects import MarketConfig, MarketProduct
 from assume.markets.clearing_algorithms import PayAsClearRole
 
 log = logging.getLogger(__name__)
+
+# blockchain address of each unit, exchanged with the counterparties after clearing
+# TODO: replace the placeholders with the real addresses of the agents
+BLOCKCHAIN_ADDRESSES = {
+    "B_01": "placeholder-address-B_01",
+    "B_02": "placeholder-address-B_02",
+    "S_01": "placeholder-address-S_01",
+    "S_02": "placeholder-address-S_02",
+}
+
 
 def read_forecasts(start, end, id: int = 0, randomize: bool = False):
     """Reads the forecasts for a specific time period and unit ID.
@@ -66,6 +76,7 @@ def read_forecasts(start, end, id: int = 0, randomize: bool = False):
 
 
 def init(world: World, n=1):
+    print('init world')
     # set start and end date
     # start = datetime(2023, 1, 1, hour=13)
     # end = datetime(2023, 1, 29, hour=13)
@@ -81,7 +92,6 @@ def init(world: World, n=1):
     # end   = original_end + shift
     # end = datetime(2024, 1, 5, hour=13)
     end = datetime(2023, 7, 5, hour=13)
-    
 
     # create index
     index = FastIndex(start, end, freq="h")
@@ -128,29 +138,29 @@ def init(world: World, n=1):
                     first_delivery=timedelta(hours=12),
                 )
             ],  # delivery will take place 12 hours after market close
-            additional_fields=["c_rate"],
+            additional_fields=["c_rate", "blockchain_address"],
             param_dict={"allowed_c_rates": [1]},
             minimum_bid_price=0,
             volume_unit="kW",
         ),
-        MarketConfig(
-            market_id="CommunityEOM",
-            opening_hours=rr.rule(
-                rr.HOURLY, interval=1, dtstart=start, until=end, cache=True
-            ),
-            opening_duration=timedelta(hours=1),
-            market_mechanism="pay_as_clear",
-            product_type="power",
-            market_products=[
-                MarketProduct(
-                    duration=timedelta(
-                        minutes=15,
-                    ),
-                    count=4 * 24,  # next day in 15-minute-blocks
-                    first_delivery=timedelta(minutes=15),
-                )
-            ],
-        ),
+        # MarketConfig(
+        #     market_id="CommunityEOM",
+        #     opening_hours=rr.rrule(
+        #         rr.HOURLY, interval=1, dtstart=start, until=end, cache=True
+        #     ),
+        #     opening_duration=timedelta(hours=1),
+        #     market_mechanism="pay_as_clear",
+        #     product_type="power",
+        #     market_products=[
+        #         MarketProduct(
+        #             duration=timedelta(
+        #                 minutes=15,
+        #             ),
+        #             count=4 * 24,  # next day in 15-minute-blocks
+        #             first_delivery=timedelta(minutes=15),
+        #         )
+        #     ],
+        # ),
     ]
 
     # create and add market operator
@@ -169,6 +179,7 @@ def init(world: World, n=1):
 
     # actually create and add the demand units
     for i in range(n_demand_units):
+        print('demand unit ', i)
         # we need a demand, solar generation and price forecast to build bids
         # so we have to read them in before providing them to the forecaster of the unit
         # -----------------------------------------------------------------------------------
@@ -179,7 +190,7 @@ def init(world: World, n=1):
         id_buy = "0" + str(i + 1) if i < 9 else str(i + 1)
         world.add_unit_operator(id=f"storage_demand_operator_{id_buy}")
         world.add_unit(
-            id = f"B_{id_buy}",
+            id=f"B_{id_buy}",
             # id = id_buy,
             unit_type="mas4te",
             unit_operator_id=f"storage_demand_operator_{id_buy}",
@@ -187,13 +198,14 @@ def init(world: World, n=1):
                 "baseline_storage": Storage(
                     id=0, c_rate=1, volume=0, charge_efficiency=1
                 ),  # unit has no storage
+                "blockchain_address": BLOCKCHAIN_ADDRESSES[f"B_{id_buy}"],
                 "max_power": 1000,  # max 1.000 kW demand
                 "min_power": 0,  # no minimum demand
                 "bidding_strategies": {
                     "BatteryMarket": "llm_strategy",
                 },
                 "bidding_params": {
-                    "role":"buy",
+                    "role": "buy",
                     # "unit_id" : id_buy,
                     "market_config": market_config,
                 },
@@ -213,6 +225,7 @@ def init(world: World, n=1):
 
     # actually create and add the supply units
     for i in range(n_supply_units):
+        print('supply unit ', i)
         # same as above - set an ID or set randomize to True
         forecasts = read_forecasts(start, end, id=str(i))
 
@@ -221,11 +234,14 @@ def init(world: World, n=1):
         world.add_unit_operator(f"storage_provider_operator_{id_sell}")
         world.add_unit(
             # id=f"storage_provider_{id_sell}",
-            id = f"S_{id_sell}",
+            id=f"S_{id_sell}",
             unit_type="mas4te",
             unit_operator_id=f"storage_provider_operator_{id_sell}",
             unit_params={
-                "baseline_storage": Storage(id=0, c_rate=1, volume=5, charge_efficiency=0.95),
+                "baseline_storage": Storage(
+                    id=0, c_rate=1, volume=5, charge_efficiency=0.95
+                ),
+                "blockchain_address": BLOCKCHAIN_ADDRESSES[f"S_{id_sell}"],
                 "max_power_charge": 1,  # max 1 kW charge
                 "max_power_discharge": 1,  # max 1 kW discharge
                 "max_soc": 20,  # max 20 kWh of storage capacity (equal to baseline)
@@ -234,7 +250,7 @@ def init(world: World, n=1):
                 "efficiency_discharge": 0.975,
                 "bidding_strategies": {"BatteryMarket": "llm_strategy"},
                 "bidding_params": {
-                    "role":"sell",
+                    "role": "sell",
                     # "unit_id" : id_sell,
                     "market_config": market_config,
                 },
@@ -260,7 +276,7 @@ def init(world: World, n=1):
 
 if __name__ == "__main__":
     # db_uri = "postgresql://assume:assume@localhost:5432/assume"
-    db_uri = "sqlite:///mas4te-assume.db"
+    db_uri = "sqlite:///new-mas4te-assume.db"
     world = World(database_uri=db_uri, log_level="ERROR")
     init(world)
     logging.getLogger("gurobipy").setLevel(logging.WARNING)  # suppress gurobipy logs

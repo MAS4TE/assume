@@ -4,12 +4,13 @@
 
 import json
 import time
-from typing import list
 
 import paho.mqtt.client as mqtt
 
 from assume.common.base import BaseStrategy, BaseUnit
 from assume.common.market_objects import MarketConfig, Orderbook
+
+from datetime import datetime
 
 
 class LLMStrategy(BaseStrategy):
@@ -39,10 +40,14 @@ class LLMStrategy(BaseStrategy):
             self.client = mqtt.Client(
                 client_id=f"assume_{comm_agent_port}_{role}_{unit_id}"
             )
-            self.client.on_connect = self.on_connect
             self.client.on_message = self.on_message
+            self.client.on_connect = self.on_connect
             self.client.connect("localhost", 1883, 60)
             self.client.loop_start()
+            time.sleep(0.5)  # wait for connection to establish
+            # self.client.subscribe([(self.TOPIC_BIDS, 0)])
+            print(f"{str(self.unit_id)}, Subscribed to {self.TOPIC_BIDS}")
+            self.run_loop = True
             LLMStrategy._mqtt_clients[client_key] = self.client
         else:
             self.client = LLMStrategy._mqtt_clients[client_key]
@@ -54,6 +59,15 @@ class LLMStrategy(BaseStrategy):
         Wait for bids from agent and return them as an Orderbook (list of orders).
         """
 
+        self.run_loop = True
+        self.latest_bids = None
+        # self.market_open_sent = False
+
+        print(f"[DEBUG] {str(self.unit_id)}  calculate_bids called for {self.unit_id}")
+        print(f"[DEBUG] {str(self.unit_id)}  MQTT connected: {self.client.is_connected()}")
+
+        # self.client.loop_start()
+        
         # Send market open message on first call (when we have products)
         if not self.market_open_sent and self.market_config:
             products_payload = []
@@ -105,32 +119,29 @@ class LLMStrategy(BaseStrategy):
             )
             msg_info.wait_for_publish()
             self.market_open_sent = True
-            print(f"Market open message sent by {self.role} strategy")
+            print(f" {str(self.unit_id)}  {datetime.now().isoformat()}, Market open message sent by {self.role} strategy")
             time.sleep(0.2)  # Give MQTT time to propagate
 
-        # ---- WAIT FOR BIDS ----
-        print(f"{self.role.capitalize()} strategy waiting for bids from agent...")
-        timeout = 4000
-        start = time.time()
+        max_run_time = 10 * 60
+        start_time = time.time()
+        while self.run_loop:
+            if (time.time() - start_time) > max_run_time:
+                print(f"[DEBUG] {str(self.unit_id)} Timeout waiting for bids for {self.unit_id}")
+                break
+            time.sleep(0.1)
 
-        while self.latest_bids is None and (time.time() - start < timeout):
-            time.sleep(0.05)
+        # self.client.loop_stop()
 
-        if self.latest_bids is None:
-            print(f"No bids received within timeout for {self.role}, using default")
-            bids = [{"bid_id": 0, "price": 0, "quantity": 0}]
-        else:
-            bids = self.latest_bids
-            self.latest_bids = None
-            print(f"{self.role.capitalize()} strategy received {len(bids)} bids")
+        if not self.latest_bids:
+            print(f"{str(self.unit_id)} No bids received for {self.unit_id}, returning empty orderbook")
+            return []
 
-        # ---- BUILD ORDERBOOK ----
         orders = []
 
         start_time, end_time, only_hours = product_tuples[0]
         c_rate = market_config.param_dict["allowed_c_rates"][0]
 
-        for bid in bids:
+        for bid in self.latest_bids:
             if not isinstance(bid, dict):
                 print(f"Skipping invalid bid: {bid}")
                 continue
@@ -143,8 +154,10 @@ class LLMStrategy(BaseStrategy):
 
             volume = quantity if self.role == "sell" else -quantity
 
+            # prefix with the unit id, agents number their bids independently
+            # and the clearing needs unique bid ids to report the matches
             order = {
-                "bid_id": bid.get("bid_id", 0),
+                "bid_id": f"{unit.id}_{bid.get('bid_id', 0)}",
                 "start_time": start_time,
                 "end_time": end_time,
                 "volume": volume,
@@ -153,21 +166,22 @@ class LLMStrategy(BaseStrategy):
                 "node": getattr(unit, "node", "node_unknown"),
                 "only_hours": only_hours if only_hours is not None else [],
                 "c_rate": c_rate,
+                "blockchain_address": unit.blockchain_address,
             }
 
             orders.append(order)
 
-        print(f"{self.role.capitalize()} orderbook generated with {len(orders)} orders")
         return orders
 
     def on_connect(self, client, userdata, flags, rc, properties=None):
-        print(f"{self.role.capitalize()} strategy connected to MQTT broker, rc={rc}")
+        print(f"{str(self.unit_id)} {self.role.capitalize()} strategy connected to MQTT broker, rc={rc}")
         client.subscribe([(self.TOPIC_BIDS, 0)])
 
     def on_message(self, client, userdata, msg):
+        # print(f"{str(self.unit_id)} on message" , msg.payload.decode())
         if msg.topic == self.TOPIC_BIDS:
             payload = json.loads(msg.payload.decode())
-            print(f"{self.role.capitalize()} strategy received bid(s): {payload}")
+            # print(f" {str(self.unit_id)} {self.role.capitalize()} strategy received bid(s): {payload}")
 
             # Normalize to list
             if isinstance(payload, dict):
@@ -202,16 +216,28 @@ class LLMStrategy(BaseStrategy):
 
             print("Confirmed bids received")
 
+            self.run_loop = False
+
     def calculate_reward(
         self, unit: BaseUnit, marketconfig: MarketConfig, orderbook: Orderbook
     ):
         print("in calculate reward")
         self.market_open_sent = False
 
+        # the clearing stores the counterparties as JSON string, decode them
+        # so the agent gets who it was matched with as structured data
+        orders = []
+        for order in orderbook:
+            order = dict(order)
+            if isinstance(order.get("matches"), str):
+                order["matches"] = json.loads(order["matches"])
+            orders.append(order)
+
         payload = {
             "msg": "market result",
             "market_id": getattr(marketconfig, "market_id", None),
-            "orderbook": orderbook,
+            "blockchain_address": getattr(unit, "blockchain_address", None),
+            "orderbook": orders,
             "unit_id": getattr(unit, "id", None),
         }
 
