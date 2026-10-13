@@ -7,10 +7,11 @@ import random
 from datetime import datetime, timedelta
 
 import pandas as pd
+from battery_market_clearing import BatteryClearing
 from battery_utility_calculator import Storage
 from dateutil import rrule as rr
+from dotenv import load_dotenv
 from mas4te_bidding_strategy import LLMStrategy
-from mas4te_market_clearing import BatteryClearing
 
 from assume import World
 from assume.common.fast_pandas import FastIndex
@@ -264,6 +265,8 @@ def init(world: World, n=1):
 
 
 if __name__ == "__main__":
+    # BRP_MARKET_RESULTS_URL and MARKET_RESULTS_PASSWORD, see example.env
+    load_dotenv()
     # db_uri = "postgresql://assume:assume@localhost:5432/assume"
     db_uri = "sqlite:///new-mas4te-assume.db"
     world = World(database_uri=db_uri, log_level="ERROR")
