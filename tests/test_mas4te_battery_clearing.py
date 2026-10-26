@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 import json
+import uuid
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
@@ -697,9 +698,19 @@ def test_clear_sends_accepted_orders_to_brp(monkeypatch):
     by_id = {o["bid_id"]: o for o in payload["orders"]}
     assert set(by_id) == {"S_01_1", "B_01_1"}
     assert by_id["S_01_1"]["start_time"] == "2026-01-01T10:00:00"
-    assert by_id["S_01_1"]["matches"] == [
-        {"bid_id": "B_01_1", "blockchain_address": "0xB1", "volume": 3, "price": 10}
+    seller_matches = by_id["S_01_1"]["matches"]
+    trade_id = seller_matches[0]["trade_id"]
+    assert uuid.UUID(trade_id).version == 4
+    assert seller_matches == [
+        {
+            "trade_id": trade_id,
+            "bid_id": "B_01_1",
+            "blockchain_address": "0xB1",
+            "volume": 3,
+            "price": 10,
+        }
     ]
+    assert [m["trade_id"] for m in by_id["B_01_1"]["matches"]] == [trade_id]
     assert by_id["B_01_1"]["blockchain_address"] == "0xB1"
 
 
@@ -731,3 +742,34 @@ def test_clear_sends_delivery_period_to_brp_without_trades(monkeypatch):
             "orders": [],
         }
     ]
+
+
+def test_clear_assigns_same_trade_id_to_both_sides():
+    role = _make_role()
+    orderbook = [
+        {"bid_id": "s1", "volume": 5, "price": 10, "blockchain_address": "0xS1"},
+        {"bid_id": "s2", "volume": 5, "price": 12, "blockchain_address": "0xS2"},
+        {"bid_id": "d1", "volume": -4, "price": 20, "blockchain_address": "0xD1"},
+        {"bid_id": "d2", "volume": -3, "price": 25, "blockchain_address": "0xD2"},
+    ]
+    product = (datetime(2026, 1, 1, 10, 0), datetime(2026, 1, 1, 11, 0), None)
+
+    accepted_orders, _, _, _ = role.clear(orderbook, [product])
+    by_id = {o["bid_id"]: o for o in accepted_orders}
+
+    def trade_ids(order, counterpart):
+        return [
+            m["trade_id"]
+            for m in json.loads(order["matches"])
+            if m["bid_id"] == counterpart
+        ]
+
+    for seller, buyer in (("s1", "d2"), ("s1", "d1"), ("s2", "d1")):
+        assert trade_ids(by_id[seller], buyer) == trade_ids(by_id[buyer], seller)
+        assert len(trade_ids(by_id[seller], buyer)) == 1
+
+    all_ids = [m["trade_id"] for m in json.loads(by_id["s1"]["matches"])] + [
+        m["trade_id"] for m in json.loads(by_id["s2"]["matches"])
+    ]
+    assert len(set(all_ids)) == 3
+    assert all(uuid.UUID(i).version == 4 for i in all_ids)

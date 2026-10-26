@@ -5,6 +5,7 @@
 import json
 import logging
 import os
+import uuid
 from collections import defaultdict
 from datetime import timedelta
 from operator import itemgetter
@@ -58,7 +59,8 @@ def match_counterparties(
     is derived afterwards: the cheapest supply is matched with the
     highest-paying demand until the accepted volumes are used up (ties are
     broken by ``bid_id``). Every match carries the counterparty's
-    ``bid_id``, blockchain address, the matched volume and the uniform price.
+    ``bid_id``, blockchain address, the matched volume and the uniform price,
+    plus a ``trade_id`` (UUIDv4) that is the same on both sides of the trade.
 
     The matches are stored as JSON string in ``order["matches"]`` because
     ASSUME splits orders with dict values and cannot write lists to the
@@ -83,9 +85,12 @@ def match_counterparties(
         volume = min(remaining[id(supply)], remaining[id(demand)])
 
         if volume > VOLUME_EPS:
+            # both sides of a trade share its id, so the BRP can pair them
+            trade_id = str(uuid.uuid4())
             for order, counterpart in ((supply, demand), (demand, supply)):
                 matches[id(order)].append(
                     {
+                        "trade_id": trade_id,
                         "bid_id": counterpart["bid_id"],
                         BLOCKCHAIN_ADDRESS_FIELD: counterpart[BLOCKCHAIN_ADDRESS_FIELD],
                         "volume": volume,
