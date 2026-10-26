@@ -131,6 +131,7 @@ def send_market_results(
                 "end_time": order["end_time"].isoformat(),
                 "accepted_volume": order["accepted_volume"],
                 "accepted_price": order["accepted_price"],
+                "c_rate": order["c_rate"],
                 MATCHES_FIELD: json.loads(order[MATCHES_FIELD]),
             }
             for order in accepted_orders

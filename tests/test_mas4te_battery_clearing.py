@@ -635,6 +635,7 @@ def _brp_orderbook():
             "unit_id": "S_01",
             "volume": 5,
             "price": 10,
+            "c_rate": 1,
             "blockchain_address": "0xS1",
             "start_time": start,
             "end_time": end,
@@ -644,6 +645,7 @@ def _brp_orderbook():
             "unit_id": "B_01",
             "volume": -3,
             "price": 20,
+            "c_rate": 1,
             "blockchain_address": "0xB1",
             "start_time": start,
             "end_time": end,
@@ -653,6 +655,7 @@ def _brp_orderbook():
             "unit_id": "B_02",
             "volume": -3,
             "price": 5,
+            "c_rate": 1,
             "blockchain_address": "0xB2",
             "start_time": start,
             "end_time": end,
@@ -712,6 +715,7 @@ def test_clear_sends_accepted_orders_to_brp(monkeypatch):
     ]
     assert [m["trade_id"] for m in by_id["B_01_1"]["matches"]] == [trade_id]
     assert by_id["B_01_1"]["blockchain_address"] == "0xB1"
+    assert by_id["S_01_1"]["c_rate"] == 1
 
 
 def test_clear_sends_delivery_period_to_brp_without_trades(monkeypatch):
