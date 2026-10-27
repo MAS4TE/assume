@@ -9,6 +9,7 @@ import paho.mqtt.client as mqtt
 
 from assume.common.base import BaseStrategy, BaseUnit
 from assume.common.market_objects import MarketConfig, Orderbook
+from assume.units.mas4te import electric_vehicle_params
 
 from datetime import datetime
 
@@ -52,6 +53,59 @@ class LLMStrategy(BaseStrategy):
         else:
             self.client = LLMStrategy._mqtt_clients[client_key]
 
+    def build_market_open_msg(self, unit, product_tuples: list[tuple]) -> dict:
+        """
+        Build the ``market_open`` message for the AI agent of ``unit``.
+
+        Besides the market configuration and the open products it contains the
+        optional field ``electric_vehicle`` with the static EV parameters of the
+        unit (see ``assume.units.mas4te.electric_vehicle_params``) or None if
+        the unit has no EV. Agents that do not know the field can ignore it.
+        """
+        products_payload = []
+        for p in product_tuples:
+            start_time, end_time, only_hours = p
+            products_payload.append(
+                {
+                    "start_time": start_time.isoformat()
+                    if hasattr(start_time, "isoformat")
+                    else str(start_time),
+                    "end_time": end_time.isoformat()
+                    if hasattr(end_time, "isoformat")
+                    else str(end_time),
+                    "only_hours": only_hours,
+                }
+            )
+
+        # Build market products from config
+        market_products_payload = []
+        for p in getattr(self.market_config, "market_products", []):
+            market_products_payload.append(
+                {
+                    "duration_seconds": p.duration.total_seconds(),
+                    "count": p.count,
+                    "first_delivery": p.first_delivery.total_seconds(),
+                    "only_hours": p.only_hours,
+                }
+            )
+
+        return {
+            "status": "market_open",
+            "market_id": self.market_config.market_id,
+            "product_type": self.market_config.product_type,
+            "maximum_bid_volume": self.market_config.maximum_bid_volume,
+            "maximum_bid_price": self.market_config.maximum_bid_price,
+            "minimum_bid_price": self.market_config.minimum_bid_price,
+            "volume_unit": self.market_config.volume_unit,
+            "price_unit": self.market_config.price_unit,
+            "additional_fields": self.market_config.additional_fields,
+            "market_products": market_products_payload,
+            "products": products_payload,
+            "electric_vehicle": electric_vehicle_params(
+                getattr(unit, "electric_vehicle", None)
+            ),
+        }
+
     def calculate_bids(
         self, unit, product_tuples: list[tuple], market_config=None, **kwargs
     ):
@@ -70,46 +124,7 @@ class LLMStrategy(BaseStrategy):
         
         # Send market open message on first call (when we have products)
         if not self.market_open_sent and self.market_config:
-            products_payload = []
-            for p in product_tuples:
-                start_time, end_time, only_hours = p
-                products_payload.append(
-                    {
-                        "start_time": start_time.isoformat()
-                        if hasattr(start_time, "isoformat")
-                        else str(start_time),
-                        "end_time": end_time.isoformat()
-                        if hasattr(end_time, "isoformat")
-                        else str(end_time),
-                        "only_hours": only_hours,
-                    }
-                )
-
-            # Build market products from config
-            market_products_payload = []
-            for p in getattr(self.market_config, "market_products", []):
-                market_products_payload.append(
-                    {
-                        "duration_seconds": p.duration.total_seconds(),
-                        "count": p.count,
-                        "first_delivery": p.first_delivery.total_seconds(),
-                        "only_hours": p.only_hours,
-                    }
-                )
-
-            market_open_msg = {
-                "status": "market_open",
-                "market_id": self.market_config.market_id,
-                "product_type": self.market_config.product_type,
-                "maximum_bid_volume": self.market_config.maximum_bid_volume,
-                "maximum_bid_price": self.market_config.maximum_bid_price,
-                "minimum_bid_price": self.market_config.minimum_bid_price,
-                "volume_unit": self.market_config.volume_unit,
-                "price_unit": self.market_config.price_unit,
-                "additional_fields": self.market_config.additional_fields,
-                "market_products": market_products_payload,
-                "products": products_payload,
-            }
+            market_open_msg = self.build_market_open_msg(unit, product_tuples)
 
             msg_info = self.client.publish(
                 self.TOPIC_MARKET_STATUS,

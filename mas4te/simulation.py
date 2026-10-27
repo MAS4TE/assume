@@ -13,6 +13,11 @@ from dateutil import rrule as rr
 from dotenv import load_dotenv
 from mas4te_bidding_strategy import LLMStrategy
 
+try:  # ElectricVehicle is only available in newer BUC versions
+    from battery_utility_calculator import ElectricVehicle
+except ImportError:
+    ElectricVehicle = None
+
 from assume import World
 from assume.common.fast_pandas import FastIndex
 from assume.common.forecasts import NaiveForecast
@@ -20,6 +25,86 @@ from assume.common.market_objects import MarketConfig, MarketProduct
 from assume.markets.clearing_algorithms import PayAsClearRole
 
 log = logging.getLogger(__name__)
+
+# Static parameters per vehicle type (types follow synload-de: tesla, vw_eup, none).
+# capacity_kwh = usable battery capacity, max_charge_kw = AC charging power at the
+# home wallbox, max_discharge_kw > 0 would enable V2H (car -> home only).
+EV_TYPES = {
+    "tesla": {"capacity_kwh": 57.5, "max_charge_kw": 11.0, "max_discharge_kw": 0.0},
+    "vw_eup": {"capacity_kwh": 32.3, "max_charge_kw": 7.2, "max_discharge_kw": 0.0},
+}
+
+
+def read_ev_profile(index, id: str = "0", data_dir: str = "./example_data"):
+    """Reads the EV time series of profile ``id`` from ``ev.csv`` and aligns them to ``index``.
+
+    ``ev.csv`` has one pair of columns per profile: ``ev_availability_<id>``
+    (1 = at home and plugged in, 0 = away) and ``ev_driving_consumption_kw_<id>``
+    (kW drawn from the battery while driving). A file with the unsuffixed columns
+    ``ev_availability`` / ``ev_driving_consumption_kw`` (one vehicle per file, see
+    the EV data contract) is accepted as well.
+
+    If the file covers the whole ``index`` it is used as is, otherwise (e.g. the
+    one-week placeholder profile) it is repeated by weekday and time of day.
+
+    Args:
+        index (FastIndex | pd.DatetimeIndex): The index of the simulation.
+        id (str, optional): The profile ID. Defaults to "0".
+        data_dir (str, optional): Folder containing ``ev.csv``.
+
+    Returns:
+        dict: ``ev_availability`` and ``ev_driving_consumption_kw`` as pd.Series on ``index``.
+    """
+    if hasattr(index, "as_datetimeindex"):
+        index = index.as_datetimeindex()
+
+    profiles = pd.read_csv(
+        f"{data_dir}/ev.csv", index_col=0, parse_dates=True, comment="#"
+    )
+    result = {}
+    for name in ("ev_availability", "ev_driving_consumption_kw"):
+        column = f"{name}_{id}" if f"{name}_{id}" in profiles else name
+        profile = profiles[column]
+        if profile.index[0] <= index[0] and profile.index[-1] >= index[-1]:
+            series = profile.reindex(index)
+        else:
+            # repeat the profile week by weekday and time of day
+            week = profile.groupby(
+                [profile.index.day_of_week, profile.index.hour, profile.index.minute]
+            ).first()
+            keys = list(zip(index.day_of_week, index.hour, index.minute))
+            series = pd.Series(week.reindex(keys).to_numpy(), index=index)
+        if series.isna().any():
+            raise ValueError(f"EV profile {column} does not cover the simulation index")
+        result[name] = series.astype(float).rename(name)
+
+    return result
+
+
+def create_electric_vehicle(id, ev_type: str, ev_profile: dict, **kwargs):
+    """Creates the BUC ElectricVehicle of a household from its type and profile.
+
+    Args:
+        id: The ID of the vehicle.
+        ev_type (str): Key of ``EV_TYPES``.
+        ev_profile (dict): Output of ``read_ev_profile``.
+        **kwargs: Further ElectricVehicle parameters (e.g. ``min_departure_soc``).
+
+    Returns:
+        ElectricVehicle: The vehicle, to be passed as ``electric_vehicle`` to the unit.
+    """
+    if ElectricVehicle is None:
+        raise ImportError(
+            "battery_utility_calculator has no ElectricVehicle, "
+            "install a BUC version with EV support or set n_ev_households = 0"
+        )
+    return ElectricVehicle(
+        id=id,
+        availability=ev_profile["ev_availability"],
+        driving_consumption=ev_profile["ev_driving_consumption_kw"],
+        **EV_TYPES[ev_type],
+        **kwargs,
+    )
 
 
 def read_forecasts(start, end, id: int = 0, randomize: bool = False):
@@ -168,6 +253,12 @@ def init(world: World, n=1):
     ##################################################
     n_demand_units = 2
     n_supply_units = 2
+    # the first n_ev_households demand units (households) own an EV, which is
+    # modelled as flexible load in the BUC (not sold on the storage market);
+    # profile and vehicle type cycle through EV_PROFILES / EV_TYPES_USED
+    n_ev_households = 1
+    EV_PROFILES = ["0", "1"]  # profile IDs in example_data/ev.csv
+    EV_TYPES_USED = ["vw_eup", "tesla"]
 
     # actually create and add the demand units
     for i in range(n_demand_units):
@@ -177,9 +268,22 @@ def init(world: World, n=1):
         # -----------------------------------------------------------------------------------
         # you can provide an ID (0 to 29) here and the forecast for that ID will be read in
         # or you can set "randomize" to True, to choose a random forecast
+        # note: the demand must be the household load WITHOUT EV charging,
+        # the EV charging is decided by the BUC (flexible load)
         forecasts = read_forecasts(start, end, id=str(i), randomize=False)
 
         id_buy = "0" + str(i + 1) if i < 9 else str(i + 1)
+
+        electric_vehicle = None
+        ev_forecasts = {}
+        if i < n_ev_households:
+            ev_forecasts = read_ev_profile(index, id=EV_PROFILES[i % len(EV_PROFILES)])
+            electric_vehicle = create_electric_vehicle(
+                id=f"EV_{id_buy}",
+                ev_type=EV_TYPES_USED[i % len(EV_TYPES_USED)],
+                ev_profile=ev_forecasts,
+                min_departure_soc=0.6,
+            )
         world.add_unit_operator(id=f"storage_demand_operator_{id_buy}")
         world.add_unit(
             id=f"B_{id_buy}",
@@ -190,6 +294,7 @@ def init(world: World, n=1):
                 "baseline_storage": Storage(
                     id=0, c_rate=1, volume=0, charge_efficiency=1
                 ),  # unit has no storage
+                "electric_vehicle": electric_vehicle,  # None = household without EV
                 "max_power": 1000,  # max 1.000 kW demand
                 "min_power": 0,  # no minimum demand
                 "bidding_strategies": {
@@ -211,6 +316,8 @@ def init(world: World, n=1):
                 community_price=forecasts["community_price"],
                 grid_price=forecasts["grid_price"],
                 solar_gen=forecasts["solar_gen"],
+                # ev_availability / ev_driving_consumption_kw, only for EV households
+                **ev_forecasts,
             ),
         )
 
