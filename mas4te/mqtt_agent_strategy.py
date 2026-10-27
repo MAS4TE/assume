@@ -4,6 +4,7 @@
 
 import json
 import time
+from datetime import datetime
 
 import paho.mqtt.client as mqtt
 
@@ -11,14 +12,21 @@ from assume.common.base import BaseStrategy, BaseUnit
 from assume.common.market_objects import MarketConfig, Orderbook
 from assume.units.mas4te import electric_vehicle_params
 
-from datetime import datetime
 
-
-class LLMStrategy(BaseStrategy):
+class MQTTAgentStrategy(BaseStrategy):
     """
     MQTT-based strategy that can act as buyer or seller.
     Supports multi-bid orderbooks.
+
+    The bids come from an external AI agent: the strategy publishes
+    ``market_open``, waits for the bids and sends back the market result.
+    Subclasses set the MQTT topics of their market (``TOPIC_PREFIX``) and turn
+    the bids into orders (``make_orders``).
     """
+
+    # topics: <TOPIC_PREFIX>/market/status_agent<id>, <TOPIC_PREFIX>/bids/agent<id>,
+    # <TOPIC_PREFIX>/results/agent<id>
+    TOPIC_PREFIX = "mas4te"
 
     # Shared MQTT clients across all instances
     _mqtt_clients = {}
@@ -31,29 +39,30 @@ class LLMStrategy(BaseStrategy):
         self.market_open_sent = False
 
         # MQTT topics
-        self.TOPIC_MARKET_STATUS = f"mas4te/market/status_agent{str(self.unit_id)}"
-        self.TOPIC_BIDS = f"mas4te/bids/agent{str(self.unit_id)}"
-        self.TOPIC_RESULTS = f"mas4te/results/agent{str(self.unit_id)}"
+        self.TOPIC_MARKET_STATUS = f"{self.TOPIC_PREFIX}/market/status_agent{str(self.unit_id)}"
+        self.TOPIC_BIDS = f"{self.TOPIC_PREFIX}/bids/agent{str(self.unit_id)}"
+        self.TOPIC_RESULTS = f"{self.TOPIC_PREFIX}/results/agent{str(self.unit_id)}"
 
-        # MQTT setup (shared clients)
-        client_key = f"{role}_{unit_id}_{comm_agent_port}"
-        if client_key not in LLMStrategy._mqtt_clients:
+        # MQTT setup (shared clients, one per market strategy of a unit)
+        client_key = f"{self.TOPIC_PREFIX}_{role}_{unit_id}_{comm_agent_port}"
+        if client_key not in MQTTAgentStrategy._mqtt_clients:
             self.client = mqtt.Client(
-                client_id=f"assume_{comm_agent_port}_{role}_{unit_id}"
+                client_id=f"assume_{self.TOPIC_PREFIX.replace('/', '_')}_{comm_agent_port}_{role}_{unit_id}"
             )
             self.client.on_message = self.on_message
             self.client.on_connect = self.on_connect
             self.client.connect("localhost", 1883, 60)
             self.client.loop_start()
             time.sleep(0.5)  # wait for connection to establish
-            # self.client.subscribe([(self.TOPIC_BIDS, 0)])
             print(f"{str(self.unit_id)}, Subscribed to {self.TOPIC_BIDS}")
             self.run_loop = True
-            LLMStrategy._mqtt_clients[client_key] = self.client
+            MQTTAgentStrategy._mqtt_clients[client_key] = self.client
         else:
-            self.client = LLMStrategy._mqtt_clients[client_key]
+            self.client = MQTTAgentStrategy._mqtt_clients[client_key]
 
-    def build_market_open_msg(self, unit, product_tuples: list[tuple]) -> dict:
+    def build_market_open_msg(
+        self, unit, product_tuples: list[tuple], market_config=None
+    ) -> dict:
         """
         Build the ``market_open`` message for the AI agent of ``unit``.
 
@@ -62,6 +71,8 @@ class LLMStrategy(BaseStrategy):
         unit (see ``assume.units.mas4te.electric_vehicle_params``) or None if
         the unit has no EV. Agents that do not know the field can ignore it.
         """
+        market_config = market_config or self.market_config
+
         products_payload = []
         for p in product_tuples:
             start_time, end_time, only_hours = p
@@ -79,7 +90,7 @@ class LLMStrategy(BaseStrategy):
 
         # Build market products from config
         market_products_payload = []
-        for p in getattr(self.market_config, "market_products", []):
+        for p in getattr(market_config, "market_products", []):
             market_products_payload.append(
                 {
                     "duration_seconds": p.duration.total_seconds(),
@@ -91,14 +102,14 @@ class LLMStrategy(BaseStrategy):
 
         return {
             "status": "market_open",
-            "market_id": self.market_config.market_id,
-            "product_type": self.market_config.product_type,
-            "maximum_bid_volume": self.market_config.maximum_bid_volume,
-            "maximum_bid_price": self.market_config.maximum_bid_price,
-            "minimum_bid_price": self.market_config.minimum_bid_price,
-            "volume_unit": self.market_config.volume_unit,
-            "price_unit": self.market_config.price_unit,
-            "additional_fields": self.market_config.additional_fields,
+            "market_id": market_config.market_id,
+            "product_type": market_config.product_type,
+            "maximum_bid_volume": market_config.maximum_bid_volume,
+            "maximum_bid_price": market_config.maximum_bid_price,
+            "minimum_bid_price": market_config.minimum_bid_price,
+            "volume_unit": market_config.volume_unit,
+            "price_unit": market_config.price_unit,
+            "additional_fields": market_config.additional_fields,
             "market_products": market_products_payload,
             "products": products_payload,
             "electric_vehicle": electric_vehicle_params(
@@ -112,19 +123,21 @@ class LLMStrategy(BaseStrategy):
         """
         Wait for bids from agent and return them as an Orderbook (list of orders).
         """
+        # every auction passes its own market config; the one from the
+        # bidding params is only the fallback
+        market_config = market_config or self.market_config
 
         self.run_loop = True
         self.latest_bids = None
-        # self.market_open_sent = False
 
         print(f"[DEBUG] {str(self.unit_id)}  calculate_bids called for {self.unit_id}")
         print(f"[DEBUG] {str(self.unit_id)}  MQTT connected: {self.client.is_connected()}")
 
-        # self.client.loop_start()
-        
         # Send market open message on first call (when we have products)
-        if not self.market_open_sent and self.market_config:
-            market_open_msg = self.build_market_open_msg(unit, product_tuples)
+        if not self.market_open_sent and market_config:
+            market_open_msg = self.build_market_open_msg(
+                unit, product_tuples, market_config
+            )
 
             msg_info = self.client.publish(
                 self.TOPIC_MARKET_STATUS,
@@ -145,63 +158,39 @@ class LLMStrategy(BaseStrategy):
                 break
             time.sleep(0.1)
 
-        # self.client.loop_stop()
-
         if not self.latest_bids:
             print(f"{str(self.unit_id)} No bids received for {self.unit_id}, returning empty orderbook")
             return []
 
-        orders = []
+        return self.make_orders(unit, self.latest_bids, product_tuples, market_config)
 
-        start_time, end_time, only_hours = product_tuples[0]
-        c_rate = market_config.param_dict["allowed_c_rates"][0]
+    def make_orders(self, unit, bids: list, product_tuples: list[tuple], market_config) -> list:
+        """Turn the bids of the agent into orders of the market."""
+        raise NotImplementedError
 
-        for bid in self.latest_bids:
-            if not isinstance(bid, dict):
-                print(f"Skipping invalid bid: {bid}")
-                continue
-
-            # the agent is assigned its blockchain address and sends it with every bid
-            if not bid.get("blockchain_address"):
-                print(f"Skipping bid without blockchain_address: {bid}")
-                continue
-
-            quantity = bid.get("quantity", 0)
-
-            # fallback if still using "volume"
-            if "volume" in bid and "quantity" not in bid:
-                quantity = bid["volume"]
-
-            volume = quantity if self.role == "sell" else -quantity
-
+    def base_order(self, unit, bid: dict, product: tuple, volume: float) -> dict:
+        """Fields every order has, whatever the market."""
+        start_time, end_time, only_hours = product
+        return {
             # prefix with the unit id, agents number their bids independently
             # and the clearing needs unique bid ids to report the matches
-            order = {
-                "bid_id": f"{unit.id}_{bid.get('bid_id', 0)}",
-                "start_time": start_time,
-                "end_time": end_time,
-                "volume": volume,
-                "price": bid.get("price", 0),
-                "agent_addr": getattr(unit, "addr", "agent_addr_unknown"),
-                "node": getattr(unit, "node", "node_unknown"),
-                "only_hours": only_hours if only_hours is not None else [],
-                "c_rate": c_rate,
-                "blockchain_address": bid["blockchain_address"],
-            }
-
-            orders.append(order)
-
-        return orders
+            "bid_id": f"{unit.id}_{bid.get('bid_id', 0)}",
+            "start_time": start_time,
+            "end_time": end_time,
+            "volume": volume,
+            "price": bid.get("price", 0),
+            "agent_addr": getattr(unit, "addr", "agent_addr_unknown"),
+            "node": getattr(unit, "node", "node_unknown"),
+            "only_hours": only_hours if only_hours is not None else [],
+        }
 
     def on_connect(self, client, userdata, flags, rc, properties=None):
         print(f"{str(self.unit_id)} {self.role.capitalize()} strategy connected to MQTT broker, rc={rc}")
         client.subscribe([(self.TOPIC_BIDS, 0)])
 
     def on_message(self, client, userdata, msg):
-        # print(f"{str(self.unit_id)} on message" , msg.payload.decode())
         if msg.topic == self.TOPIC_BIDS:
             payload = json.loads(msg.payload.decode())
-            # print(f" {str(self.unit_id)} {self.role.capitalize()} strategy received bid(s): {payload}")
 
             # Normalize to list
             if isinstance(payload, dict):
@@ -211,12 +200,6 @@ class LLMStrategy(BaseStrategy):
             else:
                 print(f"Invalid payload type: {type(payload)}")
                 return
-
-            # Normalize fields
-            for bid in bids:
-                if isinstance(bid, dict):
-                    if "volume" in bid and "quantity" not in bid:
-                        bid["quantity"] = bid["volume"]
 
             self.latest_bids = bids
 
