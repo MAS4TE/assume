@@ -1,17 +1,29 @@
-# SPDX-FileCopyrightText: MAS$TE Developers
+# SPDX-FileCopyrightText: MAS4TE Developers
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
+"""Weekly battery market with BUC bidding, for the grid simulation.
+
+Households (buyers and sellers) come from an input folder, they bid with the
+Battery Utility Calculator in-process (no MQTT, no agents), the market clears
+weekly and the schedules of the awarded households are written to a result
+folder. See GRID_SIM.md.
+
+    python simulation.py --inputs inputs/example --out results/example
+"""
+
+import argparse
 import logging
-import random
-from datetime import datetime, timedelta
+import os
+from datetime import timedelta
+from pathlib import Path
 
 import pandas as pd
 from battery_market_clearing import BatteryClearing
-from battery_utility_calculator import Storage
+from buc_strategy import BUCSettings, BUCStrategy
 from dateutil import rrule as rr
-from dotenv import load_dotenv
-from mas4te_bidding_strategy import LLMStrategy
+from grid_sim_io import Inputs, Recorder, load_inputs
+from battery_utility_calculator import Storage
 
 try:  # ElectricVehicle is only available in newer BUC versions
     from battery_utility_calculator import ElectricVehicle
@@ -22,10 +34,15 @@ from assume import World
 from assume.common.fast_pandas import FastIndex
 from assume.common.forecasts import NaiveForecast
 from assume.common.market_objects import MarketConfig, MarketProduct
-from assume.markets.clearing_algorithms import PayAsClearRole
 
 log = logging.getLogger(__name__)
 
+MARKET_ID = "BatteryMarket"
+
+
+# --- EV helpers ---------------------------------------------------------------
+# Not used by the grid simulation yet (the EV load of synload-de is part of the
+# fixed household load). Kept from the MQTT simulation, tests/test_mas4te_ev.py uses them.
 # Static parameters per vehicle type (types follow synload-de: tesla, vw_eup, none).
 # capacity_kwh = usable battery capacity, max_charge_kw = AC charging power at the
 # home wallbox, max_discharge_kw > 0 would enable V2H (car -> home only).
@@ -105,278 +122,136 @@ def create_electric_vehicle(id, ev_type: str, ev_profile: dict, **kwargs):
         **EV_TYPES[ev_type],
         **kwargs,
     )
+# ------------------------------------------------------------------------------
 
 
-def read_forecasts(start, end, id: int = 0, randomize: bool = False):
-    """Reads the forecasts for a specific time period and unit ID.
-
-    Args:
-        start (datetime): The start time of the forecast period.
-        end (datetime): The end time of the forecast period.
-        id (int, optional): The ID of the unit to read forecasts for. Defaults to 0.
-        randomize (bool, optional): Whether to randomize the forecasts. Defaults to False. Overwrites the ID.
-
-    Returns:
-        dict: A dictionary containing the forecasts for the specified time period and unit ID.
-    """
-    if randomize:
-        val = random.randint(0, 29)
-        id = "0" + str(val) if val < 10 else str(val)
-
-    demand_forecast = pd.read_csv(
-        "./example_data/demand.csv", index_col=0, parse_dates=True
-    )["demand" + "_" + id][start:end]
-    wholesale_price = pd.read_csv(
-        "./example_data/prices.csv", index_col=0, parse_dates=True
-    )["wholesale"][start:end]
-    eeg_price = pd.read_csv("./example_data/prices.csv", index_col=0, parse_dates=True)[
-        "eeg"
-    ][start:end]
-    community_price = pd.read_csv(
-        "./example_data/prices.csv", index_col=0, parse_dates=True
-    )["community"][start:end]
-    grid_price = pd.read_csv(
-        "./example_data/prices.csv", index_col=0, parse_dates=True
-    )["grid"][start:end]
-    solar_gen = pd.read_csv("./example_data/solar.csv", index_col=0, parse_dates=True)[
-        "solar" + "_" + id
-    ][start:end]
-
-    return {
-        "demand": demand_forecast,
-        "wholesale_price": wholesale_price,
-        "eeg_price": eeg_price,
-        "community_price": community_price,
-        "grid_price": grid_price,
-        "solar_gen": solar_gen,
-    }
-
-
-def init(world: World, n=1):
-    print('init world')
-    # set start and end date
-    # start = datetime(2023, 1, 1, hour=13)
-    # end = datetime(2023, 1, 29, hour=13)
-    original_start = datetime(2023, 5, 1, hour=13)
-    # original_end   = datetime(2023, 6, 4, hour=13)
-    # original_end = datetime(2023, 11, 26, hour=13)  # 47 weeks after original_start
-    # original_end = datetime(2023, 1, 8, hour=13)
-
-    SHIFT_WEEKS = 1  # 4 weeks = same weekday
-    shift = timedelta(weeks=SHIFT_WEEKS)
-
-    start = original_start + shift
-    # end   = original_end + shift
-    # end = datetime(2024, 1, 5, hour=13)
-    end = datetime(2023, 7, 5, hour=13)
-
-    # create index
-    index = FastIndex(start, end, freq="h")
-
-    # set simulation ID
-    simulation_id = "mas4te_simulation_test"
-
-    # add possible bidding strategies
-    # world.bidding_strategies["llm_buy_strategy"] = LLMBuyStrategy
-    world.bidding_strategies["llm_strategy"] = LLMStrategy
-
-    # add possible clearing mechanism
-    world.clearing_mechanisms["battery_clearing"] = BatteryClearing
-    world.clearing_mechanisms["pay_as_clear"] = PayAsClearRole
-
-    # set up world
-    world.setup(
-        start=start,
-        end=end,
-        save_frequency_hours=48,
-        simulation_id=simulation_id,
+def build_market(start, end) -> MarketConfig:
+    """Weekly storage market: each product is the rent of one week, delivered 12 h after the close."""
+    return MarketConfig(
+        market_id=MARKET_ID,
+        opening_hours=rr.rrule(rr.WEEKLY, interval=1, dtstart=start, until=end, cache=True),
+        opening_duration=timedelta(hours=1),
+        market_mechanism="battery_clearing",
+        product_type="power",
+        market_products=[
+            MarketProduct(
+                duration=timedelta(days=7),
+                count=1,  # only the next week is traded
+                first_delivery=timedelta(hours=12),
+            )
+        ],
+        additional_fields=["c_rate", "blockchain_address", "location", "exclusive_id"],
+        param_dict={"allowed_c_rates": [1]},
+        minimum_bid_price=0,
+        volume_unit="kW",
     )
 
-    # create market design
-    marketdesign = [
-        MarketConfig(
-            market_id="BatteryMarket",
-            opening_hours=rr.rrule(
-                rr.WEEKLY,
-                interval=1,
-                dtstart=start,
-                until=end,
-                cache=True,  # weekly battery market with the next week tradeable
-            ),
-            opening_duration=timedelta(hours=1),
-            market_mechanism="battery_clearing",
-            product_type="power",
-            market_products=[
-                MarketProduct(
-                    duration=timedelta(
-                        hours=24 * 7
-                    ),  # each product (storage rent) will be 1 week
-                    count=1,  # we will only trade the next week, not any week after that
-                    first_delivery=timedelta(hours=12),
-                )
-            ],  # delivery will take place 12 hours after market close
-            additional_fields=["c_rate", "blockchain_address"],
-            param_dict={"allowed_c_rates": [1]},
-            minimum_bid_price=0,
-            volume_unit="kW",
-        ),
-        # MarketConfig(
-        #     market_id="CommunityEOM",
-        #     opening_hours=rr.rrule(
-        #         rr.HOURLY, interval=1, dtstart=start, until=end, cache=True
-        #     ),
-        #     opening_duration=timedelta(hours=1),
-        #     market_mechanism="pay_as_clear",
-        #     product_type="power",
-        #     market_products=[
-        #         MarketProduct(
-        #             duration=timedelta(
-        #                 minutes=15,
-        #             ),
-        #             count=4 * 24,  # next day in 15-minute-blocks
-        #             first_delivery=timedelta(minutes=15),
-        #         )
-        #     ],
-        # ),
-    ]
 
-    # create and add market operator
-    mo_id = "market_operator"
-    world.add_market_operator(id=mo_id)
-
-    # add market to world
-    for market_config in marketdesign:
-        world.add_market(mo_id, market_config)
-
-    ##################################################
-    # SET THE NUMBER OF DEMAND AND SUPPLY UNITS HERE #
-    ##################################################
-    n_demand_units = 2
-    n_supply_units = 2
-    # the first n_ev_households demand units (households) own an EV, which is
-    # modelled as flexible load in the BUC (not sold on the storage market);
-    # profile and vehicle type cycle through EV_PROFILES / EV_TYPES_USED
-    n_ev_households = 1
-    EV_PROFILES = ["0", "1"]  # profile IDs in example_data/ev.csv
-    EV_TYPES_USED = ["vw_eup", "tesla"]
-
-    # actually create and add the demand units
-    for i in range(n_demand_units):
-        print('demand unit ', i)
-        # we need a demand, solar generation and price forecast to build bids
-        # so we have to read them in before providing them to the forecaster of the unit
-        # -----------------------------------------------------------------------------------
-        # you can provide an ID (0 to 29) here and the forecast for that ID will be read in
-        # or you can set "randomize" to True, to choose a random forecast
-        # note: the demand must be the household load WITHOUT EV charging,
-        # the EV charging is decided by the BUC (flexible load)
-        forecasts = read_forecasts(start, end, id=str(i), randomize=False)
-
-        id_buy = "0" + str(i + 1) if i < 9 else str(i + 1)
-
-        electric_vehicle = None
-        ev_forecasts = {}
-        if i < n_ev_households:
-            ev_forecasts = read_ev_profile(index, id=EV_PROFILES[i % len(EV_PROFILES)])
-            electric_vehicle = create_electric_vehicle(
-                id=f"EV_{id_buy}",
-                ev_type=EV_TYPES_USED[i % len(EV_TYPES_USED)],
-                ev_profile=ev_forecasts,
-                min_departure_soc=0.6,
-            )
-        world.add_unit_operator(id=f"storage_demand_operator_{id_buy}")
-        world.add_unit(
-            id=f"B_{id_buy}",
-            # id = id_buy,
-            unit_type="mas4te",
-            unit_operator_id=f"storage_demand_operator_{id_buy}",
-            unit_params={
-                "baseline_storage": Storage(
-                    id=0, c_rate=1, volume=0, charge_efficiency=1
-                ),  # unit has no storage
-                "electric_vehicle": electric_vehicle,  # None = household without EV
-                "max_power": 1000,  # max 1.000 kW demand
-                "min_power": 0,  # no minimum demand
-                "bidding_strategies": {
-                    "BatteryMarket": "llm_strategy",
-                },
-                "bidding_params": {
-                    "role": "buy",
-                    # "unit_id" : id_buy,
-                    "market_config": market_config,
-                },
-                "technology": "demand",
-            },
-            forecaster=NaiveForecast(
-                index=index,
-                demand=0,
-                energy_demand=forecasts["demand"],
-                wholesale_price=forecasts["wholesale_price"],
-                eeg_price=forecasts["eeg_price"],
-                community_price=forecasts["community_price"],
-                grid_price=forecasts["grid_price"],
-                solar_gen=forecasts["solar_gen"],
-                # ev_availability / ev_driving_consumption_kw, only for EV households
-                **ev_forecasts,
-            ),
+def init(
+    world: World,
+    inputs: Inputs,
+    recorder: Recorder,
+    settings: BUCSettings,
+    weeks: int,
+    start=None,
+    simulation_id: str = "mas4te_grid_sim",
+) -> None:
+    """Set up the world: one weekly market and one unit per household of ``inputs``."""
+    start = pd.Timestamp(start if start is not None else inputs.start).to_pydatetime()
+    # ASSUME opens a market only if its product ends before ``until`` of the opening
+    # rule, so the world runs until the delivery of the last of the ``weeks`` markets ends
+    delivery_end = start + timedelta(weeks=weeks, hours=12)
+    end = delivery_end + timedelta(hours=1)
+    if delivery_end > inputs.end.to_pydatetime():
+        raise ValueError(
+            f"{weeks} weeks from {start} need data until {delivery_end}, "
+            f"the inputs end at {inputs.end}. Reduce --weeks or extend the input files."
         )
 
-    # actually create and add the supply units
-    for i in range(n_supply_units):
-        print('supply unit ', i)
-        # same as above - set an ID or set randomize to True
-        forecasts = read_forecasts(start, end, id=str(i))
+    # ASSUME needs a regular index for its own bookkeeping, the BUC reads the
+    # profiles in their own resolution from the inputs
+    index = FastIndex(start, end + timedelta(weeks=2), freq="h")
 
-        id_sell = "0" + str(i + 1) if i < 9 else str(i + 1)
-        # id_sell = id_sell = str(i).zfill(3)
-        world.add_unit_operator(f"storage_provider_operator_{id_sell}")
+    world.bidding_strategies["buc_strategy"] = BUCStrategy
+    world.clearing_mechanisms["battery_clearing"] = BatteryClearing
+    world.setup(start=start, end=end, save_frequency_hours=48, simulation_id=simulation_id)
+
+    market_config = build_market(start, end)
+    world.add_market_operator(id="market_operator")
+    world.add_market("market_operator", market_config)
+
+    for spec in inputs.units:
+        world.add_unit_operator(id=f"operator_{spec.unit_id}")
         world.add_unit(
-            # id=f"storage_provider_{id_sell}",
-            id=f"S_{id_sell}",
+            id=spec.unit_id,
             unit_type="mas4te",
-            unit_operator_id=f"storage_provider_operator_{id_sell}",
+            unit_operator_id=f"operator_{spec.unit_id}",
             unit_params={
                 "baseline_storage": Storage(
-                    id=0, c_rate=1, volume=5, charge_efficiency=0.95
+                    id=0,
+                    c_rate=settings.c_rate,
+                    volume=spec.battery_kwh if spec.role == "sell" else 0,
                 ),
-                "max_power_charge": 1,  # max 1 kW charge
-                "max_power_discharge": 1,  # max 1 kW discharge
-                "max_soc": 20,  # max 20 kWh of storage capacity (equal to baseline)
-                "min_soc": 0,  # no mimimum fill level
-                "efficiency_charge": 0.975,  # charge and discharge to combine to 95% efficiency
-                "efficiency_discharge": 0.975,
-                "bidding_strategies": {"BatteryMarket": "llm_strategy"},
+                "max_power": 1000,
+                "min_power": 0,
+                "bidding_strategies": {MARKET_ID: "buc_strategy"},
                 "bidding_params": {
-                    "role": "sell",
-                    # "unit_id" : id_sell,
+                    "spec": spec,
+                    "inputs": inputs,
+                    "recorder": recorder,
+                    "settings": settings,
                     "market_config": market_config,
                 },
-                "technology": "battery_storage",
+                "technology": "battery_storage" if spec.role == "sell" else "demand",
             },
-            forecaster=NaiveForecast(
-                index=index,
-                demand=0,
-                availability=1,  # always available
-                energy_demand=forecasts["demand"],
-                solar_gen=forecasts["solar_gen"],
-                wholesale_price=forecasts["wholesale_price"],
-                eeg_price=forecasts["eeg_price"],
-                community_price=forecasts["community_price"],
-                grid_price=forecasts["grid_price"],
-                # no battery demand, fuel price or CO2 price for this simulation
-                battery_demand=0,  # no battery demand
-                fuel_price=0,  # no fuel price
-                co2_price=0,  # no CO2 price
-            ),
+            # ASSUME requires a forecaster, the profiles themselves are held by the strategy
+            forecaster=NaiveForecast(index=index, demand=0, availability=1),
         )
+
+
+def main(argv=None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--inputs", required=True, help="input folder (units.csv, loads.csv, prices.csv, ...)")
+    parser.add_argument("--out", required=True, help="result folder, created if missing")
+    parser.add_argument("--weeks", type=int, default=4, help="number of weekly markets (default 4)")
+    parser.add_argument("--start", default=None, help="first market opening, e.g. 2023-05-08T13:00 (default: start of the inputs)")
+    parser.add_argument("--solver", default="appsi_highs", help="pyomo solver of the BUC (default appsi_highs)")
+    parser.add_argument("--risk", action="store_true", help="risk adjusted bidding curve (scenarios) instead of the deterministic one")
+    parser.add_argument("--scenarios", type=int, default=12, help="scenarios of the risk adjusted bidding (with --risk)")
+    parser.add_argument("--seed", type=int, default=42, help="seed of the scenarios, -1 for a different one in every run")
+    parser.add_argument("--goal", default="max_cashflow", choices=["max_cashflow", "max_green_energy"])
+    parser.add_argument("--format", default="csv", choices=["csv", "parquet"], help="format of the result files")
+    parser.add_argument("--export-unawarded", action="store_true",
+                        help="also write flows of households that were not awarded (default: only awarded)")
+    parser.add_argument("--db", default=None, help="ASSUME database uri (default: sqlite file in the result folder)")
+    parser.add_argument("--log-level", default="WARNING")
+    args = parser.parse_args(argv)
+
+    logging.basicConfig(level=args.log_level)
+    # the results of this simulation must not reach the BRP, even if a .env is around
+    os.environ.pop("BRP_MARKET_RESULTS_URL", None)
+
+    inputs = load_inputs(args.inputs)
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    recorder = Recorder(out, fmt=args.format, export_unawarded=args.export_unawarded)
+    settings = BUCSettings(
+        solver=args.solver,
+        risk_bidding=args.risk,
+        n_scenarios=args.scenarios,
+        seed=None if args.seed < 0 else args.seed,
+        goal=args.goal,
+    )
+
+    world = World(database_uri=args.db or f"sqlite:///{out / 'assume.db'}", log_level="ERROR")
+    start = pd.Timestamp(args.start) if args.start else inputs.start
+    init(world, inputs, recorder, settings, weeks=args.weeks, start=start)
+    try:
+        world.run()
+    finally:
+        # also after an aborted run, the weeks that are done are kept
+        recorder.write()
 
 
 if __name__ == "__main__":
-    # BRP_MARKET_RESULTS_URL and MARKET_RESULTS_PASSWORD, see example.env
-    load_dotenv()
-    # db_uri = "postgresql://assume:assume@localhost:5432/assume"
-    db_uri = "sqlite:///new-mas4te-assume.db"
-    world = World(database_uri=db_uri, log_level="ERROR")
-    init(world)
-    logging.getLogger("gurobipy").setLevel(logging.WARNING)  # suppress gurobipy logs
-    world.run()
+    main()
