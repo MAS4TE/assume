@@ -8,10 +8,11 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 from battery_market_clearing import BatteryClearing
+from battery_market_strategy import BatteryMarketStrategy
 from battery_utility_calculator import Storage
+from community_eom_strategy import CommunityEOMStrategy
 from dateutil import rrule as rr
 from dotenv import load_dotenv
-from mas4te_bidding_strategy import LLMStrategy
 
 try:  # ElectricVehicle is only available in newer BUC versions
     from battery_utility_calculator import ElectricVehicle
@@ -25,6 +26,10 @@ from assume.common.market_objects import MarketConfig, MarketProduct
 from assume.markets.clearing_algorithms import PayAsClearRole
 
 log = logging.getLogger(__name__)
+
+# community energy-only market (CommunityEOM) next to the battery market,
+# off by default; True adds the market and lets every household bid on it
+ENABLE_COMMUNITY_EOM = False
 
 # Static parameters per vehicle type (types follow synload-de: tesla, vw_eup, none).
 # capacity_kwh = usable battery capacity, max_charge_kw = AC charging power at the
@@ -177,8 +182,8 @@ def init(world: World, n=1):
     simulation_id = "mas4te_simulation_test"
 
     # add possible bidding strategies
-    # world.bidding_strategies["llm_buy_strategy"] = LLMBuyStrategy
-    world.bidding_strategies["llm_strategy"] = LLMStrategy
+    world.bidding_strategies["battery_market_strategy"] = BatteryMarketStrategy
+    world.bidding_strategies["community_eom_strategy"] = CommunityEOMStrategy
 
     # add possible clearing mechanism
     world.clearing_mechanisms["battery_clearing"] = BatteryClearing
@@ -193,52 +198,65 @@ def init(world: World, n=1):
     )
 
     # create market design
-    marketdesign = [
-        MarketConfig(
-            market_id="BatteryMarket",
-            opening_hours=rr.rrule(
-                rr.WEEKLY,
-                interval=1,
-                dtstart=start,
-                until=end,
-                cache=True,  # weekly battery market with the next week tradeable
-            ),
-            opening_duration=timedelta(hours=1),
-            market_mechanism="battery_clearing",
-            product_type="power",
-            market_products=[
-                MarketProduct(
-                    duration=timedelta(
-                        hours=24 * 7
-                    ),  # each product (storage rent) will be 1 week
-                    count=1,  # we will only trade the next week, not any week after that
-                    first_delivery=timedelta(hours=12),
-                )
-            ],  # delivery will take place 12 hours after market close
-            additional_fields=["c_rate", "blockchain_address"],
-            param_dict={"allowed_c_rates": [1]},
-            minimum_bid_price=0,
-            volume_unit="kW",
+    battery_market = MarketConfig(
+        market_id="BatteryMarket",
+        opening_hours=rr.rrule(
+            rr.WEEKLY,
+            interval=1,
+            dtstart=start,
+            until=end,
+            cache=True,  # weekly battery market with the next week tradeable
         ),
-        # MarketConfig(
-        #     market_id="CommunityEOM",
-        #     opening_hours=rr.rrule(
-        #         rr.HOURLY, interval=1, dtstart=start, until=end, cache=True
-        #     ),
-        #     opening_duration=timedelta(hours=1),
-        #     market_mechanism="pay_as_clear",
-        #     product_type="power",
-        #     market_products=[
-        #         MarketProduct(
-        #             duration=timedelta(
-        #                 minutes=15,
-        #             ),
-        #             count=4 * 24,  # next day in 15-minute-blocks
-        #             first_delivery=timedelta(minutes=15),
-        #         )
-        #     ],
-        # ),
-    ]
+        opening_duration=timedelta(hours=1),
+        market_mechanism="battery_clearing",
+        product_type="power",
+        market_products=[
+            MarketProduct(
+                duration=timedelta(
+                    hours=24 * 7
+                ),  # each product (storage rent) will be 1 week
+                count=1,  # we will only trade the next week, not any week after that
+                first_delivery=timedelta(hours=12),
+            )
+        ],  # delivery will take place 12 hours after market close
+        additional_fields=["c_rate", "blockchain_address"],
+        param_dict={"allowed_c_rates": [1]},
+        minimum_bid_price=0,
+        volume_unit="kW",
+    )
+
+    # community energy-only market: energy in 15-minute blocks, pay-as-clear
+    community_eom = MarketConfig(
+        market_id="CommunityEOM",
+        opening_hours=rr.rrule(
+            rr.HOURLY, interval=1, dtstart=start, until=end, cache=True
+        ),
+        opening_duration=timedelta(hours=1),
+        market_mechanism="pay_as_clear",
+        product_type="power",
+        market_products=[
+            MarketProduct(
+                duration=timedelta(
+                    minutes=15,
+                ),
+                count=4 * 24,  # next day in 15-minute-blocks
+                first_delivery=timedelta(minutes=15),
+            )
+        ],
+        additional_fields=["blockchain_address"],
+        maximum_bid_price=3,
+        minimum_bid_price=-0.5,
+        volume_unit="kW",
+        price_unit="€/kWh",
+    )
+
+    # market and the strategy the units bid on it with
+    markets = {battery_market.market_id: (battery_market, "battery_market_strategy")}
+    if ENABLE_COMMUNITY_EOM:
+        markets[community_eom.market_id] = (community_eom, "community_eom_strategy")
+
+    marketdesign = [market for market, _ in markets.values()]
+    bidding_strategies = {market_id: strategy for market_id, (_, strategy) in markets.items()}
 
     # create and add market operator
     mo_id = "market_operator"
@@ -297,13 +315,12 @@ def init(world: World, n=1):
                 "electric_vehicle": electric_vehicle,  # None = household without EV
                 "max_power": 1000,  # max 1.000 kW demand
                 "min_power": 0,  # no minimum demand
-                "bidding_strategies": {
-                    "BatteryMarket": "llm_strategy",
-                },
+                "bidding_strategies": bidding_strategies,
                 "bidding_params": {
                     "role": "buy",
                     # "unit_id" : id_buy,
-                    "market_config": market_config,
+                    # fallback only, every auction passes its own market config
+                    "market_config": battery_market,
                 },
                 "technology": "demand",
             },
@@ -345,11 +362,12 @@ def init(world: World, n=1):
                 "min_soc": 0,  # no mimimum fill level
                 "efficiency_charge": 0.975,  # charge and discharge to combine to 95% efficiency
                 "efficiency_discharge": 0.975,
-                "bidding_strategies": {"BatteryMarket": "llm_strategy"},
+                "bidding_strategies": bidding_strategies,
                 "bidding_params": {
                     "role": "sell",
                     # "unit_id" : id_sell,
-                    "market_config": market_config,
+                    # fallback only, every auction passes its own market config
+                    "market_config": battery_market,
                 },
                 "technology": "battery_storage",
             },
